@@ -33,12 +33,17 @@ type BookingRow = {
   series_id?: string | null;
 };
 
+ttype JoinedResource = { id: number; name: string; type: string };
+
 type BookingResRow = {
   booking_id: number;
   resource_id: number;
   start_at: string;
   end_at: string;
-  resources?: { id: number; name: string; type: string } | null;
+
+  // Supabase a volte ritorna l'oggetto, a volte un array (dipende dalla relazione/alias)
+  resources?: { id: number; name: string; type: string } | { id: number; name: string; type: string }[] | null;
+
   booking?: {
     id: number;
     status: BookingStatus;
@@ -46,10 +51,10 @@ type BookingResRow = {
     notes: string | null;
     squad_id: number;
     created_by: string;
-    series_id?: string | null;
     squad?: { id: number; name: string } | null;
   } | null;
 };
+
 
 type RenderBlock = {
   booking_id: number;
@@ -101,6 +106,21 @@ function niceDbError(message: string) {
   if (m.toLowerCase().includes("overlap")) return "Orario già occupato per questa risorsa.";
   return m;
 }
+function pickResource(rr: BookingResRow): { id: number; name: string; type: string } | null {
+  const r: any = rr.resources;
+  if (!r) return null;
+  return Array.isArray(r) ? (r[0] ?? null) : r;
+}
+
+function pickResource(
+  rr: BookingResRow
+): { id: number; name: string; type: string } | null {
+  const r: any = rr.resources;
+  if (!r) return null;
+  if (Array.isArray(r)) return r[0] ?? null;
+  return r;
+}
+
 
 function colorForSquad(squadName: string) {
   const palette = ["#EFF6FF", "#ECFDF3", "#FFF7ED", "#FDF2F8", "#F0F9FF", "#F5F3FF", "#FEF3C7"];
@@ -469,8 +489,9 @@ export default function PlannerPage() {
     const lockers = brs.filter((x) =>
       isLocker({
         id: x.resource_id,
-        name: x.resources?.name ?? "",
-        type: x.resources?.type ?? "",
+        const pr = pickResource(x);
+const rn = pr?.name?.toLowerCase() ?? "";
+const rt = pr?.type ?? "";
       })
     );
 
@@ -658,8 +679,9 @@ export default function PlannerPage() {
       const hasB = fieldBId ? brs.some((x) => x.resource_id === fieldBId) : false;
 
       const isMin = brs.some((x) => {
-        const rn = x.resources?.name?.toLowerCase() ?? "";
-        const rt = x.resources?.type ?? "";
+       const pr = pickResource(x);
+const rn = pr?.name?.toLowerCase() ?? "";
+const rt = pr?.type ?? "";
         return rt === "MINIBUS" || rn.includes("pulmino");
       });
 

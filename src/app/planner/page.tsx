@@ -29,16 +29,9 @@ type BookingRow = {
   notes: string | null;
   squad_id: number;
   created_by: string;
-  // opzionale: se esiste in tabella
   series_id?: string | null;
 };
 
-/**
- * Nota: Supabase può tornare:
- * - resources: { ... } (join 1:1)
- * - resources: [{ ... }] (in alcune configurazioni/typing)
- * Quindi accettiamo entrambe e normalizziamo in pickResource().
- */
 type BookingResRow = {
   booking_id: number;
   resource_id: number;
@@ -138,6 +131,15 @@ export default function PlannerPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [profilesById, setProfilesById] = useState<Map<string, Profile>>(new Map());
 
+  // responsive
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   // modal
   const [openCreate, setOpenCreate] = useState(false);
   const [openDetails, setOpenDetails] = useState(false);
@@ -176,22 +178,21 @@ export default function PlannerPage() {
   const endHour = 21;
   const stepMin = 10;
 
-  const rowHeight = 22;
-  const timeColWidth = 76;
+  // UI sizing (più compatto su mobile)
+  const rowHeight = isMobile ? 20 : 22;
+  const timeColWidth = isMobile ? 64 : 76;
 
-  const fieldColWidth = 180;
-  const lockerColWidth = 110;
-  const miniColWidth = 160;
-  const minibusColWidth = 160;
+  const fieldColWidth = isMobile ? 132 : 180;
+  const lockerColWidth = isMobile ? 92 : 110;
+  const miniColWidth = isMobile ? 120 : 160;
+  const minibusColWidth = isMobile ? 120 : 160;
+
+  const headerPad = isMobile ? 6 : 8;
+  const baseFont = isMobile ? 12 : 13;
 
   /* =======================
      TIME HELPERS
   ======================= */
-
-  function dayTimeToIso(hhmm: string) {
-    const [hh, mm] = hhmm.split(":").map(Number);
-    return day.hour(hh).minute(mm).second(0).millisecond(0).toISOString();
-  }
 
   function dayTimeToIsoFor(d: dayjs.Dayjs, hhmm: string) {
     const [hh, mm] = hhmm.split(":").map(Number);
@@ -245,13 +246,57 @@ export default function PlannerPage() {
   }
 
   function computeRpcFieldMode(res: Resource): "A" | "B" | "FULL" {
-    // se clicchi direttamente su Campo A/B, forzi metà campo
     if (isMainFieldA(res)) return "A";
     if (isMainFieldB(res)) return "B";
-    // altrimenti prendi la scelta dell’utente
     if (fieldModeUI === "HALF_A") return "A";
     if (fieldModeUI === "HALF_B") return "B";
     return "FULL";
+  }
+
+  /* =======================
+     COLUMN COLORS
+  ======================= */
+
+  // palette spogliatoi: da arancio scuro -> giallo chiaro
+  const lockerBgPalette = ["#C2410C", "#EA580C", "#F59E0B", "#FBBF24", "#FDE68A", "#FEF3C7"];
+
+  const lockerBgById = useMemo(() => {
+    const m = new Map<number, string>();
+    const lockers = resources.filter(isLocker);
+    for (let i = 0; i < lockers.length; i++) {
+      m.set(lockers[i].id, lockerBgPalette[i % lockerBgPalette.length]);
+    }
+    return m;
+  }, [resources]);
+
+  function columnBg(res: Resource) {
+    // Campi: verde scuro
+    if (isMainFieldA(res) || isMainFieldB(res)) return "#0B3D2E";
+    // Campetto: verde più chiaro
+    if (isMiniField(res)) return "#1F7A4D";
+    // Spogliatoi: giallo/arancio
+    if (isLocker(res)) return lockerBgById.get(res.id) ?? "#F59E0B";
+    // Pulmino: azzurro
+    if (isMinibus(res)) return "#0EA5E9";
+    // default neutro
+    return "#F8FAFC";
+  }
+
+  function columnHeaderTextColor(res: Resource) {
+    // sui colori scuri testo bianco
+    if (isMainFieldA(res) || isMainFieldB(res)) return "#FFFFFF";
+    if (isMiniField(res)) return "#FFFFFF";
+    if (isMinibus(res)) return "#FFFFFF";
+    // sugli spogliatoi testo scuro per leggibilità
+    if (isLocker(res)) return "#111827";
+    return "#111827";
+  }
+
+  function columnGridLine(res: Resource) {
+    // linea più visibile su sfondi colorati
+    if (isMainFieldA(res) || isMainFieldB(res) || isMiniField(res) || isMinibus(res)) return "rgba(255,255,255,0.18)";
+    if (isLocker(res)) return "rgba(17,24,39,0.12)";
+    return "#eee";
   }
 
   /* =======================
@@ -290,7 +335,6 @@ export default function PlannerPage() {
     const user = await ensureAuth();
     if (!user) return;
 
-    // resources
     const r = await supabase.from("resources").select("id,name,type").order("id");
     const all = (r.data ?? []) as Resource[];
 
@@ -299,11 +343,9 @@ export default function PlannerPage() {
     const tail = all.filter((x) => !inOrder.has(x.id));
     setResources([...ordered, ...tail]);
 
-    // squads
     const s = await supabase.from("squads").select("id,name").order("id");
     setSquads((s.data ?? []) as Squad[]);
 
-    // booking_resources (del giorno)
     const dayStart = day.startOf("day").toISOString();
     const dayEnd = day.add(1, "day").startOf("day").toISOString();
 
@@ -320,18 +362,16 @@ export default function PlannerPage() {
       return;
     }
 
-    // ✅ Normalizza e tipizza senza cast pericolosi
     const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
       booking_id: x.booking_id,
       resource_id: x.resource_id,
       start_at: x.start_at,
       end_at: x.end_at,
-      resources: x.resources ?? null, // può essere oggetto o array, gestito da pickResource()
+      resources: x.resources ?? null,
     }));
 
     const bookingIds = Array.from(new Set(brData.map((x) => x.booking_id)));
 
-    // bookings
     let bookingsById = new Map<number, BookingRow>();
     if (bookingIds.length) {
       const b0 = await supabase
@@ -343,7 +383,6 @@ export default function PlannerPage() {
       if (b0.error) console.error(b0.error);
     }
 
-    // squads by id
     const squadIds = Array.from(new Set(Array.from(bookingsById.values()).map((b) => b.squad_id)));
     let squadsById = new Map<number, Squad>();
     if (squadIds.length) {
@@ -352,7 +391,6 @@ export default function PlannerPage() {
       if (s0.error) console.error(s0.error);
     }
 
-    // profiles for created_by
     const creatorIds = Array.from(new Set(Array.from(bookingsById.values()).map((b) => b.created_by)));
     if (creatorIds.length) {
       const p0 = await supabase.from("profiles").select("id,full_name,role").in("id", creatorIds);
@@ -366,7 +404,6 @@ export default function PlannerPage() {
       if (p0.error) console.error(p0.error);
     }
 
-    // merge booking in booking_resources
     const merged: BookingResRow[] = brData.map((r) => {
       const b = bookingsById.get(r.booking_id);
       const sq = b ? squadsById.get(b.squad_id) : undefined;
@@ -458,7 +495,6 @@ export default function PlannerPage() {
     const brs = rows.filter((x) => x.booking_id === block.booking_id);
     const b = brs[0]?.booking ?? null;
 
-    // scegli una risorsa "principale" per il form
     const fieldRow =
       brs.find((x) => pickResource(x)?.name === "Campo A") ||
       brs.find((x) => pickResource(x)?.name === "Campo B");
@@ -476,7 +512,6 @@ export default function PlannerPage() {
     setStartHHMM(dayjs(resRow.start_at).format("HH:mm"));
     setEndHHMM(dayjs(resRow.end_at).format("HH:mm"));
 
-    // modalità campo
     const hasA = fieldAId ? brs.some((x) => x.resource_id === fieldAId) : false;
     const hasB = fieldBId ? brs.some((x) => x.resource_id === fieldBId) : false;
 
@@ -485,7 +520,6 @@ export default function PlannerPage() {
     else if (hasB) setFieldModeUI("HALF_B");
     else setFieldModeUI("FULL");
 
-    // spogliatoi (se presenti)
     const lockers = brs.filter((x) => {
       const rr = pickResource(x);
       if (!rr) return false;
@@ -495,7 +529,6 @@ export default function PlannerPage() {
     setLocker1Id(lockers[0]?.resource_id ?? "NONE");
     setLocker2Id(lockers[1]?.resource_id ?? "NONE");
 
-    // ricorrenza: in modalità update la disattiviamo (puoi estenderla dopo)
     setIsRecurring(false);
     setRecurringUntil("");
 
@@ -505,7 +538,6 @@ export default function PlannerPage() {
 
   /* =======================
      CREATE / UPDATE BOOKING
-     (RICORRENZA SETTIMANALE)
   ======================= */
 
   async function createOrUpdateBooking(mode: "create" | "update") {
@@ -558,7 +590,6 @@ export default function PlannerPage() {
         const lockerStartIso = dayjs(startIso).subtract(lockerBeforeMin, "minute").toISOString();
         const lockerEndIso = dayjs(endIso).add(lockerAfterMin, "minute").toISOString();
 
-        // booking container
         const { data: ins, error: insErr } = await supabase
           .from("bookings")
           .insert({
@@ -576,7 +607,6 @@ export default function PlannerPage() {
         if (insErr) throw insErr;
         const newBookingId = ins.id as number;
 
-        // booking_resources
         const rowsToInsert: any[] = [];
 
         if (minibus) {
@@ -588,7 +618,6 @@ export default function PlannerPage() {
             rowsToInsert.push({ booking_id: newBookingId, resource_id: lid, start_at: startIso, end_at: endIso });
           }
         } else {
-          // campi
           const rpcMode = computeRpcFieldMode(selectedResource);
 
           if (isMiniField(selectedResource)) {
@@ -607,7 +636,6 @@ export default function PlannerPage() {
             }
           }
 
-          // spogliatoi (0/1/2)
           for (const lid of chosenLockerIds) {
             rowsToInsert.push({ booking_id: newBookingId, resource_id: lid, start_at: lockerStartIso, end_at: lockerEndIso });
           }
@@ -615,7 +643,6 @@ export default function PlannerPage() {
 
         const brIns = await supabase.from("booking_resources").insert(rowsToInsert);
         if (brIns.error) {
-          // se ricorrenza: salta solo la settimana in conflitto
           if (isRecurring && brIns.error.message?.toLowerCase().includes("overlap")) continue;
           throw brIns.error;
         }
@@ -651,7 +678,7 @@ export default function PlannerPage() {
   }
 
   /* =======================
-     RENDER BLOCKS (FIXED)
+     RENDER BLOCKS
   ======================= */
 
   const renderBlocks: RenderBlock[] = useMemo(() => {
@@ -682,7 +709,6 @@ export default function PlannerPage() {
         return rt === "MINIBUS" || rn.includes("pulmino");
       });
 
-      // Campo intero (A+B): blocco unico ancorato a Campo A con span 2
       if (hasA && hasB && fieldAId && fieldBId) {
         const startAt = brs
           .filter((x) => x.resource_id === fieldAId || x.resource_id === fieldBId)
@@ -710,9 +736,7 @@ export default function PlannerPage() {
         });
       }
 
-      // Tutti gli altri blocchi
       for (const rr of brs) {
-        // se già creato A+B, non duplicare su Campo A/B
         if ((rr.resource_id === fieldAId || rr.resource_id === fieldBId) && hasA && hasB) continue;
 
         blocks.push({
@@ -747,26 +771,66 @@ export default function PlannerPage() {
   const minWidthTotal = useMemo(() => {
     const w = resources.reduce((sum, r) => sum + colWidthFor(r), 0);
     return timeColWidth + w;
-  }, [resources]);
+  }, [resources, timeColWidth]);
 
   const fieldBWidth = useMemo(() => {
     const rb = resources.find((r) => r.name === "Campo B");
     return rb ? colWidthFor(rb) : fieldColWidth;
-  }, [resources]);
+  }, [resources, fieldColWidth]);
 
   /* =======================
      UI
   ======================= */
 
+  const stickyBorder = "1px solid rgba(17,24,39,0.10)";
+
+  const dateInputValue = day.format("YYYY-MM-DD");
+
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: isMobile ? 12 : 24, fontSize: baseFont }}>
       {/* HEADER */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ margin: 0 }}>Planner</h2>
-          <div>{day.format("DD/MM/YYYY")}</div>
+          <h2 style={{ margin: 0, fontWeight: 900 }}>Planner</h2>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+            {/* data + picker */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontWeight: 900 }}>{day.format("DD/MM/YYYY")}</div>
+
+              <input
+                type="date"
+                value={dateInputValue}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  setDay(dayjs(v));
+                }}
+                style={{
+                  padding: isMobile ? "6px 8px" : "6px 10px",
+                  border: "1px solid #ddd",
+                  borderRadius: 10,
+                  fontWeight: 900,
+                }}
+                aria-label="Seleziona data"
+              />
+            </div>
+
+            {/* ✅ nuovo: titolo a destra della data */}
+            <div
+              style={{
+                fontWeight: 900,
+                fontSize: isMobile ? 18 : 22,
+                letterSpacing: "0.2px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              S.S. Stivo
+            </div>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={() => setDay(day.subtract(1, "day"))}>◀</button>
           <button onClick={() => setDay(dayjs())}>Oggi</button>
           <button onClick={() => setDay(day.add(1, "day"))}>▶</button>
@@ -779,21 +843,46 @@ export default function PlannerPage() {
         <div>Caricamento…</div>
       ) : (
         <div style={{ border: "1px solid #ddd", borderRadius: 12, overflow: "auto" }}>
-          {/* HEADER COLONNE */}
+          {/* HEADER COLONNE (sticky top) */}
           <div
             style={{
               display: "flex",
               minWidth: minWidthTotal,
-              background: "#fff",
               position: "sticky",
               top: 0,
-              zIndex: 5,
-              borderBottom: "1px solid #eee",
+              zIndex: 10,
+              borderBottom: "1px solid #e5e7eb",
             }}
           >
-            <div style={{ width: timeColWidth, padding: 8, fontWeight: 700 }}>Ora</div>
+            {/* ORA header sticky left */}
+            <div
+              style={{
+                width: timeColWidth,
+                padding: headerPad,
+                fontWeight: 900,
+                position: "sticky",
+                left: 0,
+                zIndex: 30,
+                background: "#F3F4F6",
+                borderRight: stickyBorder,
+              }}
+            >
+              Ora
+            </div>
+
             {resources.map((r) => (
-              <div key={r.id} style={{ width: colWidthFor(r), padding: 8, fontWeight: 700 }}>
+              <div
+                key={r.id}
+                style={{
+                  width: colWidthFor(r),
+                  padding: headerPad,
+                  fontWeight: 900,
+                  whiteSpace: "nowrap",
+                  background: columnBg(r),
+                  color: columnHeaderTextColor(r),
+                  borderRight: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
                 {r.name}
               </div>
             ))}
@@ -801,10 +890,31 @@ export default function PlannerPage() {
 
           {/* BODY */}
           <div style={{ display: "flex", minWidth: minWidthTotal }}>
-            {/* COLONNA ORARI */}
-            <div style={{ width: timeColWidth }}>
+            {/* COLONNA ORARI (sticky left) */}
+            <div
+              style={{
+                width: timeColWidth,
+                position: "sticky",
+                left: 0,
+                zIndex: 9,
+                background: "#F3F4F6",
+                borderRight: stickyBorder,
+              }}
+            >
               {slots.map((t, i) => (
-                <div key={i} style={{ height: rowHeight, fontSize: 12, paddingLeft: 8 }}>
+                <div
+                  key={i}
+                  style={{
+                    height: rowHeight,
+                    fontSize: isMobile ? 11 : 12,
+                    paddingLeft: isMobile ? 6 : 8,
+                    fontWeight: 900,
+                    display: "flex",
+                    alignItems: "center",
+                    background: "#F3F4F6",
+                    borderBottom: "1px solid rgba(17,24,39,0.12)", // ✅ righe 10 minuti visibili
+                  }}
+                >
                   {t.minute() === 0 ? t.format("HH:mm") : ""}
                 </div>
               ))}
@@ -814,11 +924,18 @@ export default function PlannerPage() {
             {resources.map((res) => {
               const blocks = blocksByAnchor.get(res.id) ?? [];
               const w = colWidthFor(res);
+              const bg = columnBg(res);
+              const gridLine = columnGridLine(res);
 
               return (
                 <div
                   key={res.id}
-                  style={{ width: w, position: "relative", cursor: "pointer" }}
+                  style={{
+                    width: w,
+                    position: "relative",
+                    cursor: "pointer",
+                    background: bg,
+                  }}
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y = e.clientY - rect.top;
@@ -830,13 +947,13 @@ export default function PlannerPage() {
                 >
                   {/* GRIGLIA */}
                   {slots.map((_, i) => (
-                    <div key={i} style={{ height: rowHeight, borderBottom: "1px solid #eee" }} />
+                    <div key={i} style={{ height: rowHeight, borderBottom: `1px solid ${gridLine}` }} />
                   ))}
 
                   {/* BLOCCHI */}
                   {blocks.map((b) => {
                     const { top, height } = spanSlots(b.start_at, b.end_at);
-                    const bg = colorForSquad(b.squad_name);
+                    const blockBg = colorForSquad(b.squad_name);
                     const pill = statusPillColors(b.status);
                     const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
 
@@ -853,17 +970,17 @@ export default function PlannerPage() {
                           top,
                           height,
                           width: blockWidth,
-                          background: bg,
-                          border: "1px solid #444",
+                          background: blockBg,
+                          border: "1px solid rgba(17,24,39,0.75)",
                           borderRadius: 10,
-                          padding: 6,
-                          fontSize: 12,
-                          boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                          padding: isMobile ? 5 : 6,
+                          fontSize: isMobile ? 11 : 12,
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.18)",
                           overflow: "hidden",
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                          <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <b style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {b.squad_name}
                           </b>
                           <span
@@ -876,15 +993,16 @@ export default function PlannerPage() {
                               fontSize: 11,
                               whiteSpace: "nowrap",
                               height: "fit-content",
+                              fontWeight: 900,
                             }}
                           >
                             {b.status}
                           </span>
                         </div>
-                        <div style={{ marginTop: 2 }}>
+                        <div style={{ marginTop: 2, fontWeight: 900 }}>
                           {dayjs(b.start_at).format("HH:mm")}–{dayjs(b.end_at).format("HH:mm")}
                         </div>
-                        <div style={{ fontSize: 11, opacity: 0.85 }}>
+                        <div style={{ fontSize: isMobile ? 10.5 : 11, opacity: 0.9, fontWeight: 800 }}>
                           {b.booking_type} · {b.coach_name}
                         </div>
                       </div>
@@ -909,6 +1027,7 @@ export default function PlannerPage() {
             justifyContent: "center",
             alignItems: "center",
             zIndex: 50,
+            padding: isMobile ? 12 : 0,
           }}
         >
           <div
@@ -923,26 +1042,22 @@ export default function PlannerPage() {
               overflowY: "auto",
             }}
           >
-            <h3 style={{ marginTop: 0 }}>{openCreate ? "Nuova prenotazione" : "Dettagli prenotazione"}</h3>
+            <h3 style={{ marginTop: 0, fontWeight: 900 }}>{openCreate ? "Nuova prenotazione" : "Dettagli prenotazione"}</h3>
 
-            {/* FORM */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>Risorsa</div>
-                <div style={{ fontWeight: 700 }}>{selectedResource?.name ?? "—"}</div>
+                <div style={{ fontWeight: 900 }}>{selectedResource?.name ?? "—"}</div>
               </div>
 
               <div>
                 <div style={{ fontSize: 12, opacity: 0.75 }}>Giorno</div>
-                <div style={{ fontWeight: 700 }}>{day.format("DD/MM/YYYY")}</div>
+                <div style={{ fontWeight: 900 }}>{day.format("DD/MM/YYYY")}</div>
               </div>
 
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>Squadra</span>
-                <select
-                  value={squadId === "" ? "" : String(squadId)}
-                  onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
-                >
+                <select value={squadId === "" ? "" : String(squadId)} onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}>
                   <option value="">— seleziona —</option>
                   {squads.map((s) => (
                     <option key={s.id} value={String(s.id)}>
@@ -984,10 +1099,7 @@ export default function PlannerPage() {
 
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoio 1</span>
-                <select
-                  value={locker1Id === "NONE" ? "NONE" : String(locker1Id)}
-                  onChange={(e) => setLocker1Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}
-                >
+                <select value={locker1Id === "NONE" ? "NONE" : String(locker1Id)} onChange={(e) => setLocker1Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}>
                   <option value="NONE">— nessuno —</option>
                   {lockerResources.map((l) => (
                     <option key={l.id} value={String(l.id)}>
@@ -999,10 +1111,7 @@ export default function PlannerPage() {
 
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoio 2</span>
-                <select
-                  value={locker2Id === "NONE" ? "NONE" : String(locker2Id)}
-                  onChange={(e) => setLocker2Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}
-                >
+                <select value={locker2Id === "NONE" ? "NONE" : String(locker2Id)} onChange={(e) => setLocker2Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}>
                   <option value="NONE">— nessuno —</option>
                   {lockerResources.map((l) => (
                     <option key={l.id} value={String(l.id)}>
@@ -1027,9 +1136,8 @@ export default function PlannerPage() {
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
               </label>
 
-              {/* Ricorrenza solo in CREATE */}
               {openCreate && (
-                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
                     Ripeti ogni settimana
@@ -1045,10 +1153,9 @@ export default function PlannerPage() {
               )}
             </div>
 
-            {submitErr && <div style={{ color: "red", marginTop: 10 }}>{submitErr}</div>}
+            {submitErr && <div style={{ color: "red", marginTop: 10, fontWeight: 900 }}>{submitErr}</div>}
 
-            {/* BOTTONI */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
               <button onClick={closeAllModals}>Chiudi</button>
 
               {openCreate && (

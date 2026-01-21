@@ -92,11 +92,11 @@ function isMainFieldB(res: Resource) {
 
 function statusPillColors(status: string) {
   const s = (status || "").toUpperCase();
-  if (s === "CONFIRMED") return { bg: "#DCFCE7", border: "#14532D", text: "#14532D" };
-  if (s === "PROPOSED") return { bg: "#FFEDD5", border: "#7C2D12", text: "#7C2D12" };
-  if (s.includes("CHANGE")) return { bg: "#FFE4E6", border: "#7F1D1D", text: "#7F1D1D" };
-  if (s === "CANCELLED" || s === "CANCELED") return { bg: "#E5E7EB", border: "#111827", text: "#111827" };
-  return { bg: "#E0E7FF", border: "#1E3A8A", text: "#1E3A8A" };
+  if (s === "CONFIRMED") return { bg: "#E8F7EE", border: "#2E7D32", text: "#2E7D32" };
+  if (s === "PROPOSED") return { bg: "#FFF7E6", border: "#B26A00", text: "#B26A00" };
+  if (s.includes("CHANGE")) return { bg: "#FFF1F2", border: "#B42318", text: "#B42318" };
+  if (s === "CANCELLED" || s === "CANCELED") return { bg: "#F2F4F7", border: "#667085", text: "#667085" };
+  return { bg: "#EEF2FF", border: "#4F46E5", text: "#4F46E5" };
 }
 
 function niceDbError(message: string) {
@@ -108,7 +108,7 @@ function niceDbError(message: string) {
 }
 
 function colorForSquad(squadName: string) {
-  const palette = ["#DBEAFE", "#D1FAE5", "#FFEDD5", "#FCE7F3", "#CFFAFE", "#EDE9FE", "#FEF3C7"];
+  const palette = ["#EFF6FF", "#ECFDF3", "#FFF7ED", "#FDF2F8", "#F0F9FF", "#F5F3FF", "#FEF3C7"];
   let hash = 0;
   for (let i = 0; i < squadName.length; i++) hash = squadName.charCodeAt(i) + ((hash << 5) - hash);
   return palette[Math.abs(hash) % palette.length];
@@ -178,44 +178,17 @@ export default function PlannerPage() {
   const endHour = 21;
   const stepMin = 10;
 
-  // UI sizing
+  // UI sizing (più compatto su mobile)
   const rowHeight = isMobile ? 20 : 22;
-  const timeColWidth = isMobile ? 66 : 76;
+  const timeColWidth = isMobile ? 64 : 76;
 
   const fieldColWidth = isMobile ? 132 : 180;
-  const lockerColWidth = isMobile ? 94 : 110;
-  const miniColWidth = isMobile ? 122 : 160;
-  const minibusColWidth = isMobile ? 122 : 160;
+  const lockerColWidth = isMobile ? 92 : 110;
+  const miniColWidth = isMobile ? 120 : 160;
+  const minibusColWidth = isMobile ? 120 : 160;
 
   const headerPad = isMobile ? 6 : 8;
-  const baseFont = isMobile ? 13 : 13;
-
-  /* =======================
-     HIGH CONTRAST TOKENS
-  ======================= */
-
-  const C = {
-    text: "#111827",
-    textMuted: "#1F2937",
-    cardBg: "#FFFFFF",
-    border: "#111827",
-    borderSoft: "#D1D5DB",
-    shadow: "0 10px 30px rgba(0,0,0,0.20)",
-    overlay: "rgba(0,0,0,0.60)",
-    inputBg: "#FFFFFF",
-    inputBorder: "#111827",
-    inputText: "#111827",
-    inputLabel: "#111827",
-    inputHint: "#374151",
-    buttonBg: "#111827",
-    buttonText: "#FFFFFF",
-    buttonBorder: "#111827",
-    buttonGhostBg: "#F3F4F6",
-    buttonGhostText: "#111827",
-    timeBg: "#E5E7EB",
-    timeLine: "rgba(17,24,39,0.25)",
-    gridLine: "rgba(17,24,39,0.12)",
-  };
+  const baseFont = isMobile ? 12 : 13;
 
   /* =======================
      TIME HELPERS
@@ -233,23 +206,6 @@ export default function PlannerPage() {
     const nh = Math.floor(snapped / 60);
     const nm = snapped % 60;
     return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
-  }
-
-  function hhmmToMinutes(hhmm: string) {
-    const [hh, mm] = hhmm.split(":").map((x) => Number(x));
-    return hh * 60 + mm;
-  }
-
-  function addMinutesToHHMM(hhmm: string, deltaMin: number) {
-    // usa la data corrente del planner per fare add robusto
-    const t = dayjs(`${day.format("YYYY-MM-DD")}T${hhmm}`).add(deltaMin, "minute").format("HH:mm");
-    return clampToStep(t);
-  }
-
-  function ensureEndAfterStartHHMM(start: string, end: string) {
-    // Regola: Fine deve essere strettamente dopo Inizio
-    if (hhmmToMinutes(end) <= hhmmToMinutes(start)) return addMinutesToHHMM(start, stepMin);
-    return end;
   }
 
   function spanSlots(startIso: string, endIso: string) {
@@ -295,41 +251,6 @@ export default function PlannerPage() {
     if (fieldModeUI === "HALF_A") return "A";
     if (fieldModeUI === "HALF_B") return "B";
     return "FULL";
-  }
-
-  /* =======================
-     COLUMN COLORS
-  ======================= */
-
-  const lockerBgPalette = ["#C2410C", "#EA580C", "#F59E0B", "#FBBF24", "#FDE68A", "#FEF3C7"];
-
-  const lockerBgById = useMemo(() => {
-    const m = new Map<number, string>();
-    const lockers = resources.filter(isLocker);
-    for (let i = 0; i < lockers.length; i++) {
-      m.set(lockers[i].id, lockerBgPalette[i % lockerBgPalette.length]);
-    }
-    return m;
-  }, [resources]);
-
-  function columnBg(res: Resource) {
-    if (isMainFieldA(res) || isMainFieldB(res)) return "#0B3D2E"; // verde scuro
-    if (isMiniField(res)) return "#1F7A4D"; // verde chiaro
-    if (isLocker(res)) return lockerBgById.get(res.id) ?? "#F59E0B"; // giallo/arancio
-    if (isMinibus(res)) return "#0EA5E9"; // azzurro
-    return "#F8FAFC";
-  }
-
-  function columnHeaderTextColor(res: Resource) {
-    if (isMainFieldA(res) || isMainFieldB(res) || isMiniField(res) || isMinibus(res)) return "#FFFFFF";
-    if (isLocker(res)) return "#111827";
-    return "#111827";
-  }
-
-  function columnGridLine(res: Resource) {
-    if (isMainFieldA(res) || isMainFieldB(res) || isMiniField(res) || isMinibus(res)) return "rgba(255,255,255,0.18)";
-    if (isLocker(res)) return "rgba(17,24,39,0.20)";
-    return C.gridLine;
   }
 
   /* =======================
@@ -473,16 +394,14 @@ export default function PlannerPage() {
     setBookingType(isLocker(res) ? "MAINTENANCE" : "TRAINING");
 
     const st = clampToStep(slotHHMM);
-
-    // ✅ default 2 ore (come da tua scelta)
     const en = clampToStep(
       dayjs(`${day.format("YYYY-MM-DD")}T${slotHHMM}`)
-        .add(120, "minute")
+        .add(60, "minute")
         .format("HH:mm")
     );
 
     setStartHHMM(st);
-    setEndHHMM(ensureEndAfterStartHHMM(st, en));
+    setEndHHMM(en);
 
     if (isMainFieldA(res)) setFieldModeUI("HALF_A");
     else if (isMainFieldB(res)) setFieldModeUI("HALF_B");
@@ -544,10 +463,8 @@ export default function PlannerPage() {
     setBookingType((b?.type as BookingType) ?? "TRAINING");
     setNotes(b?.notes ?? "");
 
-    const st = clampToStep(dayjs(resRow.start_at).format("HH:mm"));
-    const en = clampToStep(dayjs(resRow.end_at).format("HH:mm"));
-    setStartHHMM(st);
-    setEndHHMM(ensureEndAfterStartHHMM(st, en));
+    setStartHHMM(dayjs(resRow.start_at).format("HH:mm"));
+    setEndHHMM(dayjs(resRow.end_at).format("HH:mm"));
 
     const hasA = fieldAId ? brs.some((x) => x.resource_id === fieldAId) : false;
     const hasB = fieldBId ? brs.some((x) => x.resource_id === fieldBId) : false;
@@ -819,165 +736,65 @@ export default function PlannerPage() {
      UI
   ======================= */
 
+  const stickyLeftBg = "#fff";
+  const stickyBorder = "1px solid #eee";
+
+  // ✅ nuovo: date picker value
   const dateInputValue = day.format("YYYY-MM-DD");
 
-  // ✅ input/select più leggibili (soprattutto su iOS)
-  const inputStyle: React.CSSProperties = {
-    padding: isMobile ? "10px 10px" : "8px 10px",
-    border: `2px solid ${C.inputBorder}`,
-    borderRadius: 12,
-    background: C.inputBg,
-    color: C.inputText,
-    fontWeight: 800,
-    outline: "none",
-    minHeight: 42,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 13,
-    fontWeight: 900,
-    color: C.inputLabel,
-  };
-
-  const hintStyle: React.CSSProperties = {
-    fontSize: 12,
-    fontWeight: 800,
-    color: C.inputHint,
-    opacity: 1,
-  };
-
-  const btnStylePrimary: React.CSSProperties = {
-    background: C.buttonBg,
-    color: C.buttonText,
-    border: `2px solid ${C.buttonBorder}`,
-    borderRadius: 12,
-    padding: "10px 14px",
-    fontWeight: 900,
-  };
-
-  const btnStyleGhost: React.CSSProperties = {
-    background: C.buttonGhostBg,
-    color: C.buttonGhostText,
-    border: `2px solid ${C.buttonBorder}`,
-    borderRadius: 12,
-    padding: "10px 14px",
-    fontWeight: 900,
-  };
-
-  // ✅ controlli orario "mobile-first"
-  const timeValueBox: React.CSSProperties = {
-    border: `2px solid ${C.inputBorder}`,
-    borderRadius: 14,
-    padding: isMobile ? "12px 12px" : "10px 12px",
-    background: "#FFFFFF",
-    fontWeight: 1000,
-    fontSize: isMobile ? 26 : 22,
-    textAlign: "center",
-    letterSpacing: "0.5px",
-    lineHeight: 1.1,
-    userSelect: "none",
-  };
-
-  const stepBtnBase: React.CSSProperties = {
-    minHeight: 54,
-    borderRadius: 14,
-    padding: "12px 16px",
-    fontWeight: 1000,
-    fontSize: 16,
-    border: "2px solid #111827",
-    boxShadow: "0 6px 14px rgba(0,0,0,0.15)",
-    cursor: "pointer",
-    width: "100%",
-  };
-
-  const stepBtnMinus: React.CSSProperties = {
-    ...stepBtnBase,
-    background: "#BBF7D0", // verde chiaro
-    color: "#064E3B",
-  };
-
-  const stepBtnPlus: React.CSSProperties = {
-    ...stepBtnBase,
-    background: "#FED7AA", // arancio chiaro
-    color: "#7C2D12",
-  };
-
-  function bumpStart(delta: number) {
-    const nextStart = addMinutesToHHMM(startHHMM, delta);
-    setStartHHMM(nextStart);
-
-    // Regola: se Inizio supera/uguaglia Fine -> Fine = Inizio + 10
-    if (hhmmToMinutes(nextStart) >= hhmmToMinutes(endHHMM)) {
-      setEndHHMM(addMinutesToHHMM(nextStart, stepMin));
-    }
-  }
-
-  function bumpEnd(delta: number) {
-    const nextEnd = addMinutesToHHMM(endHHMM, delta);
-    // Regola: se Fine scende sotto/uguaglia Inizio -> auto-corretta a Inizio + 10
-    setEndHHMM(ensureEndAfterStartHHMM(startHHMM, nextEnd));
-  }
-
   return (
-    <div style={{ padding: isMobile ? 12 : 24, fontSize: baseFont, color: C.text, background: "#FFFFFF" }}>
+    <div style={{ padding: isMobile ? 12 : 24, fontSize: baseFont }}>
       {/* HEADER */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ margin: 0, fontWeight: 900, color: C.text }}>Planner</h2>
+          <h2 style={{ margin: 0, fontWeight: 800 }}>Planner</h2>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 900, color: C.text }}>{day.format("DD/MM/YYYY")}</div>
+          {/* ✅ nuovo: data + selettore */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 800 }}>{day.format("DD/MM/YYYY")}</div>
 
-              <input
-                type="date"
-                value={dateInputValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (!v) return;
-                  setDay(dayjs(v));
-                }}
-                style={inputStyle}
-                aria-label="Seleziona data"
-              />
-            </div>
-
-            <div style={{ fontWeight: 900, fontSize: isMobile ? 20 : 22, letterSpacing: "0.2px", whiteSpace: "nowrap", color: C.text }}>
-              S.S. Stivo
-            </div>
+            <input
+              type="date"
+              value={dateInputValue}
+              onChange={(e) => {
+                const v = e.target.value; // YYYY-MM-DD
+                if (!v) return;
+                setDay(dayjs(v));
+              }}
+              style={{
+                padding: isMobile ? "6px 8px" : "6px 10px",
+                border: "1px solid #ddd",
+                borderRadius: 10,
+                fontWeight: 800,
+              }}
+              aria-label="Seleziona data"
+            />
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button style={btnStyleGhost} onClick={() => setDay(day.subtract(1, "day"))}>
-            ◀
-          </button>
-          <button style={btnStyleGhost} onClick={() => setDay(dayjs())}>
-            Oggi
-          </button>
-          <button style={btnStyleGhost} onClick={() => setDay(day.add(1, "day"))}>
-            ▶
-          </button>
-          <button style={btnStylePrimary} onClick={logout}>
-            Esci
-          </button>
+          <button onClick={() => setDay(day.subtract(1, "day"))}>◀</button>
+          <button onClick={() => setDay(dayjs())}>Oggi</button>
+          <button onClick={() => setDay(day.add(1, "day"))}>▶</button>
+          <button onClick={logout}>Esci</button>
         </div>
       </div>
 
       {/* PLANNER */}
       {loading ? (
-        <div style={{ fontWeight: 900, color: C.text }}>Caricamento…</div>
+        <div>Caricamento…</div>
       ) : (
-        <div style={{ border: "2px solid #111827", borderRadius: 14, overflow: "auto" }}>
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, overflow: "auto" }}>
           {/* HEADER COLONNE (sticky top) */}
           <div
             style={{
               display: "flex",
               minWidth: minWidthTotal,
+              background: "#fff",
               position: "sticky",
               top: 0,
               zIndex: 10,
-              borderBottom: "2px solid #111827",
+              borderBottom: "1px solid #eee",
             }}
           >
             {/* ORA header sticky left */}
@@ -985,32 +802,19 @@ export default function PlannerPage() {
               style={{
                 width: timeColWidth,
                 padding: headerPad,
-                fontWeight: 900,
+                fontWeight: 800,
                 position: "sticky",
                 left: 0,
-                zIndex: 30,
-                background: C.timeBg,
-                borderRight: "2px solid #111827",
-                color: C.text,
+                zIndex: 20,
+                background: stickyLeftBg,
+                borderRight: stickyBorder,
               }}
             >
               Ora
             </div>
 
             {resources.map((r) => (
-              <div
-                key={r.id}
-                style={{
-                  width: colWidthFor(r),
-                  padding: headerPad,
-                  fontWeight: 900,
-                  whiteSpace: "nowrap",
-                  background: columnBg(r),
-                  color: columnHeaderTextColor(r),
-                  borderRight: "1px solid rgba(0,0,0,0.15)",
-                  textShadow: columnHeaderTextColor(r) === "#FFFFFF" ? "0 1px 1px rgba(0,0,0,0.35)" : "none",
-                }}
-              >
+              <div key={r.id} style={{ width: colWidthFor(r), padding: headerPad, fontWeight: 800, whiteSpace: "nowrap" }}>
                 {r.name}
               </div>
             ))}
@@ -1025,8 +829,8 @@ export default function PlannerPage() {
                 position: "sticky",
                 left: 0,
                 zIndex: 9,
-                background: C.timeBg,
-                borderRight: "2px solid #111827",
+                background: stickyLeftBg,
+                borderRight: stickyBorder,
               }}
             >
               {slots.map((t, i) => (
@@ -1034,14 +838,12 @@ export default function PlannerPage() {
                   key={i}
                   style={{
                     height: rowHeight,
-                    fontSize: isMobile ? 12 : 12,
-                    paddingLeft: isMobile ? 8 : 10,
-                    fontWeight: 900,
+                    fontSize: isMobile ? 11 : 12,
+                    paddingLeft: isMobile ? 6 : 8,
+                    fontWeight: 800,
                     display: "flex",
                     alignItems: "center",
-                    background: C.timeBg,
-                    color: C.text,
-                    borderBottom: `1px solid ${C.timeLine}`, // ✅ righe 10 minuti ben visibili
+                    background: stickyLeftBg,
                   }}
                 >
                   {t.minute() === 0 ? t.format("HH:mm") : ""}
@@ -1053,18 +855,11 @@ export default function PlannerPage() {
             {resources.map((res) => {
               const blocks = blocksByAnchor.get(res.id) ?? [];
               const w = colWidthFor(res);
-              const bg = columnBg(res);
-              const gridLine = columnGridLine(res);
 
               return (
                 <div
                   key={res.id}
-                  style={{
-                    width: w,
-                    position: "relative",
-                    cursor: "pointer",
-                    background: bg,
-                  }}
+                  style={{ width: w, position: "relative", cursor: "pointer" }}
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y = e.clientY - rect.top;
@@ -1076,13 +871,13 @@ export default function PlannerPage() {
                 >
                   {/* GRIGLIA */}
                   {slots.map((_, i) => (
-                    <div key={i} style={{ height: rowHeight, borderBottom: `1px solid ${gridLine}` }} />
+                    <div key={i} style={{ height: rowHeight, borderBottom: "1px solid #eee" }} />
                   ))}
 
                   {/* BLOCCHI */}
                   {blocks.map((b) => {
                     const { top, height } = spanSlots(b.start_at, b.end_at);
-                    const blockBg = colorForSquad(b.squad_name);
+                    const bg = colorForSquad(b.squad_name);
                     const pill = statusPillColors(b.status);
                     const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
 
@@ -1099,14 +894,13 @@ export default function PlannerPage() {
                           top,
                           height,
                           width: blockWidth,
-                          background: blockBg,
-                          border: "2px solid #111827",
-                          borderRadius: 12,
-                          padding: isMobile ? 6 : 6,
-                          fontSize: isMobile ? 12 : 12,
-                          boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
+                          background: bg,
+                          border: "1px solid #444",
+                          borderRadius: 10,
+                          padding: isMobile ? 5 : 6,
+                          fontSize: isMobile ? 11 : 12,
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
                           overflow: "hidden",
-                          color: "#111827",
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -1116,23 +910,23 @@ export default function PlannerPage() {
                           <span
                             style={{
                               background: pill.bg,
-                              border: `2px solid ${pill.border}`,
+                              border: `1px solid ${pill.border}`,
                               color: pill.text,
-                              padding: "2px 8px",
+                              padding: "1px 6px",
                               borderRadius: 999,
                               fontSize: 11,
                               whiteSpace: "nowrap",
                               height: "fit-content",
-                              fontWeight: 900,
+                              fontWeight: 800,
                             }}
                           >
                             {b.status}
                           </span>
                         </div>
-                        <div style={{ marginTop: 4, fontWeight: 900 }}>
+                        <div style={{ marginTop: 2, fontWeight: 800 }}>
                           {dayjs(b.start_at).format("HH:mm")}–{dayjs(b.end_at).format("HH:mm")}
                         </div>
-                        <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900, color: "#111827" }}>
+                        <div style={{ fontSize: isMobile ? 10.5 : 11, opacity: 0.9, fontWeight: 700 }}>
                           {b.booking_type} · {b.coach_name}
                         </div>
                       </div>
@@ -1152,7 +946,7 @@ export default function PlannerPage() {
           style={{
             position: "fixed",
             inset: 0,
-            background: C.overlay, // ✅ overlay più scuro
+            background: "rgba(0,0,0,0.45)",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
@@ -1163,39 +957,31 @@ export default function PlannerPage() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: C.cardBg,
-              padding: isMobile ? 16 : 20,
-              borderRadius: 16,
+              background: "#fff",
+              padding: 20,
+              borderRadius: 12,
               width: 780,
               maxWidth: "95vw",
               maxHeight: "85vh",
               overflowY: "auto",
-              border: `2px solid ${C.border}`,
-              boxShadow: C.shadow,
-              color: C.text,
             }}
           >
-            <h3 style={{ marginTop: 0, fontWeight: 900, color: C.text }}>{openCreate ? "Nuova prenotazione" : "Dettagli prenotazione"}</h3>
+            <h3 style={{ marginTop: 0, fontWeight: 900 }}>{openCreate ? "Nuova prenotazione" : "Dettagli prenotazione"}</h3>
 
-            {/* FORM */}
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
               <div>
-                <div style={hintStyle}>Risorsa</div>
-                <div style={{ fontWeight: 900, fontSize: 16, color: C.text }}>{selectedResource?.name ?? "—"}</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>Risorsa</div>
+                <div style={{ fontWeight: 900 }}>{selectedResource?.name ?? "—"}</div>
               </div>
 
               <div>
-                <div style={hintStyle}>Giorno</div>
-                <div style={{ fontWeight: 900, fontSize: 16, color: C.text }}>{day.format("DD/MM/YYYY")}</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>Giorno</div>
+                <div style={{ fontWeight: 900 }}>{day.format("DD/MM/YYYY")}</div>
               </div>
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Squadra</span>
-                <select
-                  style={inputStyle}
-                  value={squadId === "" ? "" : String(squadId)}
-                  onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
-                >
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Squadra</span>
+                <select value={squadId === "" ? "" : String(squadId)} onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}>
                   <option value="">— seleziona —</option>
                   {squads.map((s) => (
                     <option key={s.id} value={String(s.id)}>
@@ -1205,49 +991,29 @@ export default function PlannerPage() {
                 </select>
               </label>
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Tipo</span>
-                <select style={inputStyle} value={bookingType} onChange={(e) => setBookingType(e.target.value as BookingType)}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Tipo</span>
+                <select value={bookingType} onChange={(e) => setBookingType(e.target.value as BookingType)}>
                   <option value="TRAINING">Allenamento</option>
                   <option value="MATCH">Partita</option>
                   <option value="MAINTENANCE">Manutenzione</option>
                 </select>
               </label>
 
-              {/* ✅ INIZIO - controlli a bottoni */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Inizio</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, alignItems: "stretch" }}>
-                  <button type="button" style={stepBtnMinus} onClick={() => bumpStart(-stepMin)}>
-                    −10
-                  </button>
-                  <div style={timeValueBox}>{startHHMM}</div>
-                  <button type="button" style={stepBtnPlus} onClick={() => bumpStart(+stepMin)}>
-                    +10
-                  </button>
-                </div>
-                <div style={hintStyle}>Tap per correggere di 10 minuti</div>
-              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Inizio</span>
+                <input value={startHHMM} onChange={(e) => setStartHHMM(clampToStep(e.target.value))} />
+              </label>
 
-              {/* ✅ FINE - controlli a bottoni */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Fine</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, alignItems: "stretch" }}>
-                  <button type="button" style={stepBtnMinus} onClick={() => bumpEnd(-stepMin)}>
-                    −10
-                  </button>
-                  <div style={timeValueBox}>{endHHMM}</div>
-                  <button type="button" style={stepBtnPlus} onClick={() => bumpEnd(+stepMin)}>
-                    +10
-                  </button>
-                </div>
-                <div style={hintStyle}>La fine viene auto-corretta se scende sotto l’inizio</div>
-              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Fine</span>
+                <input value={endHHMM} onChange={(e) => setEndHHMM(clampToStep(e.target.value))} />
+              </label>
 
               {!selectedResource || isLocker(selectedResource) || isMinibus(selectedResource) || isMiniField(selectedResource) ? null : (
-                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <span style={labelStyle}>Campo</span>
-                  <select style={inputStyle} value={fieldModeUI} onChange={(e) => setFieldModeUI(e.target.value as FieldModeUI)}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 12, opacity: 0.75 }}>Campo</span>
+                  <select value={fieldModeUI} onChange={(e) => setFieldModeUI(e.target.value as FieldModeUI)}>
                     <option value="FULL">Intero (A+B)</option>
                     <option value="HALF_A">Metà A</option>
                     <option value="HALF_B">Metà B</option>
@@ -1255,13 +1021,9 @@ export default function PlannerPage() {
                 </label>
               )}
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Spogliatoio 1</span>
-                <select
-                  style={inputStyle}
-                  value={locker1Id === "NONE" ? "NONE" : String(locker1Id)}
-                  onChange={(e) => setLocker1Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}
-                >
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoio 1</span>
+                <select value={locker1Id === "NONE" ? "NONE" : String(locker1Id)} onChange={(e) => setLocker1Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}>
                   <option value="NONE">— nessuno —</option>
                   {lockerResources.map((l) => (
                     <option key={l.id} value={String(l.id)}>
@@ -1271,13 +1033,9 @@ export default function PlannerPage() {
                 </select>
               </label>
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Spogliatoio 2</span>
-                <select
-                  style={inputStyle}
-                  value={locker2Id === "NONE" ? "NONE" : String(locker2Id)}
-                  onChange={(e) => setLocker2Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}
-                >
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoio 2</span>
+                <select value={locker2Id === "NONE" ? "NONE" : String(locker2Id)} onChange={(e) => setLocker2Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}>
                   <option value="NONE">— nessuno —</option>
                   {lockerResources.map((l) => (
                     <option key={l.id} value={String(l.id)}>
@@ -1287,62 +1045,55 @@ export default function PlannerPage() {
                 </select>
               </label>
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Spogliatoi: minuti prima</span>
-                <input style={inputStyle} type="number" value={lockerBeforeMin} onChange={(e) => setLockerBeforeMin(Number(e.target.value || 0))} />
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoi: minuti prima</span>
+                <input type="number" value={lockerBeforeMin} onChange={(e) => setLockerBeforeMin(Number(e.target.value || 0))} />
               </label>
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Spogliatoi: minuti dopo</span>
-                <input style={inputStyle} type="number" value={lockerAfterMin} onChange={(e) => setLockerAfterMin(Number(e.target.value || 0))} />
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoi: minuti dopo</span>
+                <input type="number" value={lockerAfterMin} onChange={(e) => setLockerAfterMin(Number(e.target.value || 0))} />
               </label>
 
-              <label style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={labelStyle}>Note</span>
-                <textarea
-                  style={{ ...inputStyle, minHeight: 90, resize: "vertical" }}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                />
+              <label style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 12, opacity: 0.75 }}>Note</span>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
               </label>
 
               {openCreate && (
-                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 900, color: C.text }}>
-                    <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} style={{ transform: "scale(1.2)" }} />
+                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
                     Ripeti ogni settimana
                   </label>
 
                   {isRecurring && (
-                    <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 900, color: C.text }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       fino al:
-                      <input style={inputStyle} type="date" value={recurringUntil} onChange={(e) => setRecurringUntil(e.target.value)} />
+                      <input type="date" value={recurringUntil} onChange={(e) => setRecurringUntil(e.target.value)} />
                     </label>
                   )}
                 </div>
               )}
             </div>
 
-            {submitErr && <div style={{ color: "#991B1B", marginTop: 12, fontWeight: 900 }}>{submitErr}</div>}
+            {submitErr && <div style={{ color: "red", marginTop: 10, fontWeight: 800 }}>{submitErr}</div>}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-              <button style={btnStyleGhost} onClick={closeAllModals}>
-                Chiudi
-              </button>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+              <button onClick={closeAllModals}>Chiudi</button>
 
               {openCreate && (
-                <button style={btnStylePrimary} onClick={() => createOrUpdateBooking("create")} disabled={submitting}>
+                <button onClick={() => createOrUpdateBooking("create")} disabled={submitting}>
                   {submitting ? "Creo…" : "Crea"}
                 </button>
               )}
 
               {openDetails && (
                 <>
-                  <button style={btnStyleGhost} onClick={deleteBooking} disabled={submitting}>
+                  <button onClick={deleteBooking} disabled={submitting}>
                     Elimina
                   </button>
-                  <button style={btnStylePrimary} onClick={() => createOrUpdateBooking("update")} disabled={submitting}>
+                  <button onClick={() => createOrUpdateBooking("update")} disabled={submitting}>
                     Salva
                   </button>
                 </>
@@ -1350,8 +1101,8 @@ export default function PlannerPage() {
             </div>
 
             {openDetails && activeBookingId && (
-              <div style={{ marginTop: 10, fontSize: 12, color: C.textMuted, fontWeight: 900 }}>
-                Booking ID: <b style={{ color: C.text }}>{activeBookingId}</b>
+              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+                Booking ID: <b>{activeBookingId}</b>
               </div>
             )}
           </div>

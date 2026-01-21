@@ -235,23 +235,6 @@ export default function PlannerPage() {
     return `${String(nh).padStart(2, "0")}:${String(nm).padStart(2, "0")}`;
   }
 
-  function hhmmToMinutes(hhmm: string) {
-    const [hh, mm] = hhmm.split(":").map((x) => Number(x));
-    return hh * 60 + mm;
-  }
-
-  function addMinutesToHHMM(hhmm: string, deltaMin: number) {
-    // usa la data corrente del planner per fare add robusto
-    const t = dayjs(`${day.format("YYYY-MM-DD")}T${hhmm}`).add(deltaMin, "minute").format("HH:mm");
-    return clampToStep(t);
-  }
-
-  function ensureEndAfterStartHHMM(start: string, end: string) {
-    // Regola: Fine deve essere strettamente dopo Inizio
-    if (hhmmToMinutes(end) <= hhmmToMinutes(start)) return addMinutesToHHMM(start, stepMin);
-    return end;
-  }
-
   function spanSlots(startIso: string, endIso: string) {
     const s = dayjs(startIso);
     const e = dayjs(endIso);
@@ -473,16 +456,14 @@ export default function PlannerPage() {
     setBookingType(isLocker(res) ? "MAINTENANCE" : "TRAINING");
 
     const st = clampToStep(slotHHMM);
-
-    // ✅ default 2 ore (come da tua scelta)
     const en = clampToStep(
       dayjs(`${day.format("YYYY-MM-DD")}T${slotHHMM}`)
-        .add(120, "minute")
+        .add(60, "minute")
         .format("HH:mm")
     );
 
     setStartHHMM(st);
-    setEndHHMM(ensureEndAfterStartHHMM(st, en));
+    setEndHHMM(en);
 
     if (isMainFieldA(res)) setFieldModeUI("HALF_A");
     else if (isMainFieldB(res)) setFieldModeUI("HALF_B");
@@ -544,10 +525,8 @@ export default function PlannerPage() {
     setBookingType((b?.type as BookingType) ?? "TRAINING");
     setNotes(b?.notes ?? "");
 
-    const st = clampToStep(dayjs(resRow.start_at).format("HH:mm"));
-    const en = clampToStep(dayjs(resRow.end_at).format("HH:mm"));
-    setStartHHMM(st);
-    setEndHHMM(ensureEndAfterStartHHMM(st, en));
+    setStartHHMM(dayjs(resRow.start_at).format("HH:mm"));
+    setEndHHMM(dayjs(resRow.end_at).format("HH:mm"));
 
     const hasA = fieldAId ? brs.some((x) => x.resource_id === fieldAId) : false;
     const hasB = fieldBId ? brs.some((x) => x.resource_id === fieldBId) : false;
@@ -864,60 +843,6 @@ export default function PlannerPage() {
     fontWeight: 900,
   };
 
-  // ✅ controlli orario "mobile-first"
-  const timeValueBox: React.CSSProperties = {
-    border: `2px solid ${C.inputBorder}`,
-    borderRadius: 14,
-    padding: isMobile ? "12px 12px" : "10px 12px",
-    background: "#FFFFFF",
-    fontWeight: 1000,
-    fontSize: isMobile ? 26 : 22,
-    textAlign: "center",
-    letterSpacing: "0.5px",
-    lineHeight: 1.1,
-    userSelect: "none",
-  };
-
-  const stepBtnBase: React.CSSProperties = {
-    minHeight: 54,
-    borderRadius: 14,
-    padding: "12px 16px",
-    fontWeight: 1000,
-    fontSize: 16,
-    border: "2px solid #111827",
-    boxShadow: "0 6px 14px rgba(0,0,0,0.15)",
-    cursor: "pointer",
-    width: "100%",
-  };
-
-  const stepBtnMinus: React.CSSProperties = {
-    ...stepBtnBase,
-    background: "#BBF7D0", // verde chiaro
-    color: "#064E3B",
-  };
-
-  const stepBtnPlus: React.CSSProperties = {
-    ...stepBtnBase,
-    background: "#FED7AA", // arancio chiaro
-    color: "#7C2D12",
-  };
-
-  function bumpStart(delta: number) {
-    const nextStart = addMinutesToHHMM(startHHMM, delta);
-    setStartHHMM(nextStart);
-
-    // Regola: se Inizio supera/uguaglia Fine -> Fine = Inizio + 10
-    if (hhmmToMinutes(nextStart) >= hhmmToMinutes(endHHMM)) {
-      setEndHHMM(addMinutesToHHMM(nextStart, stepMin));
-    }
-  }
-
-  function bumpEnd(delta: number) {
-    const nextEnd = addMinutesToHHMM(endHHMM, delta);
-    // Regola: se Fine scende sotto/uguaglia Inizio -> auto-corretta a Inizio + 10
-    setEndHHMM(ensureEndAfterStartHHMM(startHHMM, nextEnd));
-  }
-
   return (
     <div style={{ padding: isMobile ? 12 : 24, fontSize: baseFont, color: C.text, background: "#FFFFFF" }}>
       {/* HEADER */}
@@ -1214,35 +1139,15 @@ export default function PlannerPage() {
                 </select>
               </label>
 
-              {/* ✅ INIZIO - controlli a bottoni */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Inizio</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, alignItems: "stretch" }}>
-                  <button type="button" style={stepBtnMinus} onClick={() => bumpStart(-stepMin)}>
-                    −10
-                  </button>
-                  <div style={timeValueBox}>{startHHMM}</div>
-                  <button type="button" style={stepBtnPlus} onClick={() => bumpStart(+stepMin)}>
-                    +10
-                  </button>
-                </div>
-                <div style={hintStyle}>Tap per correggere di 10 minuti</div>
-              </div>
+                <input style={inputStyle} value={startHHMM} onChange={(e) => setStartHHMM(clampToStep(e.target.value))} />
+              </label>
 
-              {/* ✅ FINE - controlli a bottoni */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Fine</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, alignItems: "stretch" }}>
-                  <button type="button" style={stepBtnMinus} onClick={() => bumpEnd(-stepMin)}>
-                    −10
-                  </button>
-                  <div style={timeValueBox}>{endHHMM}</div>
-                  <button type="button" style={stepBtnPlus} onClick={() => bumpEnd(+stepMin)}>
-                    +10
-                  </button>
-                </div>
-                <div style={hintStyle}>La fine viene auto-corretta se scende sotto l’inizio</div>
-              </div>
+                <input style={inputStyle} value={endHHMM} onChange={(e) => setEndHHMM(clampToStep(e.target.value))} />
+              </label>
 
               {!selectedResource || isLocker(selectedResource) || isMinibus(selectedResource) || isMiniField(selectedResource) ? null : (
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>

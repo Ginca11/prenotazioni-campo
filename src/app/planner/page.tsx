@@ -33,12 +33,18 @@ type BookingRow = {
   series_id?: string | null;
 };
 
+/**
+ * Nota: Supabase può tornare:
+ * - resources: { ... } (join 1:1)
+ * - resources: [{ ... }] (in alcune configurazioni/typing)
+ * Quindi accettiamo entrambe e normalizziamo in pickResource().
+ */
 type BookingResRow = {
   booking_id: number;
   resource_id: number;
   start_at: string;
   end_at: string;
-  resources?: { id: number; name: string; type: string } | null;
+  resources?: Resource | Resource[] | null;
   booking?: {
     id: number;
     status: BookingStatus;
@@ -68,6 +74,12 @@ type RenderBlock = {
 /* =======================
    HELPERS (PURE)
 ======================= */
+
+function pickResource(row: BookingResRow): Resource | null {
+  const r = row.resources;
+  if (!r) return null;
+  return Array.isArray(r) ? (r[0] ?? null) : r;
+}
 
 function isLocker(res: Resource) {
   return res.type === "LOCKER" || res.name.toLowerCase().includes("spogliatoio");
@@ -308,7 +320,15 @@ export default function PlannerPage() {
       return;
     }
 
-    const brData = (br0.data ?? []) as BookingResRow[];
+    // ✅ Normalizza e tipizza senza cast pericolosi
+    const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
+      booking_id: x.booking_id,
+      resource_id: x.resource_id,
+      start_at: x.start_at,
+      end_at: x.end_at,
+      resources: x.resources ?? null, // può essere oggetto o array, gestito da pickResource()
+    }));
+
     const bookingIds = Array.from(new Set(brData.map((x) => x.booking_id)));
 
     // bookings
@@ -440,8 +460,8 @@ export default function PlannerPage() {
 
     // scegli una risorsa "principale" per il form
     const fieldRow =
-      brs.find((x) => x.resources?.name === "Campo A") ||
-      brs.find((x) => x.resources?.name === "Campo B");
+      brs.find((x) => pickResource(x)?.name === "Campo A") ||
+      brs.find((x) => pickResource(x)?.name === "Campo B");
 
     const resRow = fieldRow ?? brs[0];
     const res = resources.find((r) => r.id === resRow.resource_id) ?? null;
@@ -466,13 +486,11 @@ export default function PlannerPage() {
     else setFieldModeUI("FULL");
 
     // spogliatoi (se presenti)
-    const lockers = brs.filter((x) =>
-      isLocker({
-        id: x.resource_id,
-        name: x.resources?.name ?? "",
-        type: x.resources?.type ?? "",
-      })
-    );
+    const lockers = brs.filter((x) => {
+      const rr = pickResource(x);
+      if (!rr) return false;
+      return isLocker(rr);
+    });
 
     setLocker1Id(lockers[0]?.resource_id ?? "NONE");
     setLocker2Id(lockers[1]?.resource_id ?? "NONE");
@@ -658,8 +676,9 @@ export default function PlannerPage() {
       const hasB = fieldBId ? brs.some((x) => x.resource_id === fieldBId) : false;
 
       const isMin = brs.some((x) => {
-        const rn = x.resources?.name?.toLowerCase() ?? "";
-        const rt = x.resources?.type ?? "";
+        const rr = pickResource(x);
+        const rn = rr?.name?.toLowerCase() ?? "";
+        const rt = rr?.type ?? "";
         return rt === "MINIBUS" || rn.includes("pulmino");
       });
 
@@ -819,8 +838,7 @@ export default function PlannerPage() {
                     const { top, height } = spanSlots(b.start_at, b.end_at);
                     const bg = colorForSquad(b.squad_name);
                     const pill = statusPillColors(b.status);
-                    const blockWidth =
-                      b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
+                    const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
 
                     return (
                       <div
@@ -921,7 +939,10 @@ export default function PlannerPage() {
 
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>Squadra</span>
-                <select value={squadId === "" ? "" : String(squadId)} onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}>
+                <select
+                  value={squadId === "" ? "" : String(squadId)}
+                  onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
+                >
                   <option value="">— seleziona —</option>
                   {squads.map((s) => (
                     <option key={s.id} value={String(s.id)}>
@@ -963,7 +984,10 @@ export default function PlannerPage() {
 
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoio 1</span>
-                <select value={locker1Id === "NONE" ? "NONE" : String(locker1Id)} onChange={(e) => setLocker1Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}>
+                <select
+                  value={locker1Id === "NONE" ? "NONE" : String(locker1Id)}
+                  onChange={(e) => setLocker1Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}
+                >
                   <option value="NONE">— nessuno —</option>
                   {lockerResources.map((l) => (
                     <option key={l.id} value={String(l.id)}>
@@ -975,7 +999,10 @@ export default function PlannerPage() {
 
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <span style={{ fontSize: 12, opacity: 0.75 }}>Spogliatoio 2</span>
-                <select value={locker2Id === "NONE" ? "NONE" : String(locker2Id)} onChange={(e) => setLocker2Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}>
+                <select
+                  value={locker2Id === "NONE" ? "NONE" : String(locker2Id)}
+                  onChange={(e) => setLocker2Id(e.target.value === "NONE" ? "NONE" : Number(e.target.value))}
+                >
                   <option value="NONE">— nessuno —</option>
                   {lockerResources.map((l) => (
                     <option key={l.id} value={String(l.id)}>

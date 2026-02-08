@@ -1,0 +1,72 @@
+diff --git a/src/app/planner/page.tsx b/src/app/planner/page.tsx
+index 0000000..1111111 100644
+--- a/src/app/planner/page.tsx
++++ b/src/app/planner/page.tsx
+@@
+-useEffect(() => {
+-  let cancelled = false;
+-
+-  (async () => {
+-    try {
+-      // ... tuo codice di fetch
+-
+-      if (s.error) throw s.error;
+-
+-      const squadsData = (s.data ?? []) as Squad[];
+-      setSquads(squadsData);
+-
+-      if (squadsData.length === 1) {
+-        setSelectedSquadId(squadsData[0].id);
+-        setSquadId(squadsData[0].id);
+-      }
+-
+-      await loadBookingsForDay();
+-    } catch (e) {
+-      console.error("Planner load error:", e);
+-      if (!cancelled) {
+-        setResources([]);
+-        setSquads([]);
+-        setRows([]);
+-      }
+-    } finally {
+-      if (!cancelled) setLoading(false);
+-    }
+-  })();
+-
+-  return () => {
+-    cancelled = true;
+-  };
+-}, [day]);
++// ⛔ rimosso useEffect duplicato che usava variabile "s" non definita
+@@
+ async function load() {
+   setLoading(true);
+   try {
+     const auth = await ensureAuth(); // se fallisce -> throw
+@@
+-    setIsAdmin(auth.roleLower === "admin");
++    const isAdminNow = auth.roleLower === "admin";
++    setIsAdmin(isAdminNow);
+@@
+     const inOrder = new Set(ordered.map((x) => x.id));
+     const tail = all.filter((x) => !inOrder.has(x.id));
+     setResources([...ordered, ...tail]);
++
++    // --- SQUADS (admin -> squads, mister -> my_managed_squads) ---
++    const squadsFrom = isAdminNow ? "squads" : "my_managed_squads";
++    const s0 = await supabase
++      .from(squadsFrom)
++      .select("id,name")
++      .order("name");
++    if (s0.error) throw s0.error;
++
++    const squadsData = (s0.data ?? []) as Squad[];
++    setSquads(squadsData);
++
++    if (squadsData.length === 1) {
++      setSquadId(squadsData[0].id);
++    }
++
++    await loadBookingsForDay();
+   } catch (e) {
+*** End Patch

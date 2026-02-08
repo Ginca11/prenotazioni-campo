@@ -1,0 +1,97 @@
+*** Begin Patch
+*** Update File: src/app/planner/page.tsx
+@@
+ type Resource = { id: number; name: string; type: string };
+ type Squad = { id: number; name: string };
+@@
+ useEffect(() => {
+   const onResize = () => setIsMobile(window.innerWidth < 640);
+   onResize();
+   window.addEventListener("resize", onResize);
+   return () => window.removeEventListener("resize", onResize);
+ }, []);
+ 
+-useEffect(() => {
+-  let cancelled = false;
+-
+-  (async () => {
+-    try {
+-      // ... tuo codice di fetch
+-
+-      if (s.error) throw s.error;
+-
+-      const squadsData = (s.data ?? []) as Squad[];
+-      setSquads(squadsData);
+-
+-      if (squadsData.length === 1) {
+-        setSelectedSquadId(squadsData[0].id);
+-        setSquadId(squadsData[0].id);
+-      }
+-
+-      await loadBookingsForDay();
+-    } catch (e) {
+-      console.error("Planner load error:", e);
+-      if (!cancelled) {
+-        setResources([]);
+-        setSquads([]);
+-        setRows([]);
+-      }
+-    } finally {
+-      if (!cancelled) setLoading(false);
+-    }
+-  })();
+-
+-  return () => {
+-    cancelled = true;
+-  };
+-}, [day]);
++// ✅ Rimosso useEffect duplicato/rotto che usava variabile "s" non definita.
+@@
+ async function load() {
+   setLoading(true);
+   try {
+     const auth = await ensureAuth(); // se fallisce -> throw
+     console.log("AUTH OK", { userId: auth.user.id, roleLower: auth.roleLower });
+ 
+     setMe({ id: auth.user.id });
+-    setIsAdmin(auth.roleLower === "admin");
++    const isAdminNow = auth.roleLower === "admin";
++    setIsAdmin(isAdminNow);
+ 
+     const r = await supabase.from("resources").select("id,name,type").order("id");
+     if (r.error) throw r.error;
+ 
+     const all = (r.data ?? []) as Resource[];
+@@
+     const inOrder = new Set(ordered.map((x) => x.id));
+     const tail = all.filter((x) => !inOrder.has(x.id));
+     setResources([...ordered, ...tail]);
+ 
+-    // (qui sotto poi ci rimetti la parte che carica squads/rows, se la vuoi dentro load)
++    // ✅ SQUADS: admin -> squads, mister -> my_managed_squads
++    // NB: per avere sort_order qui, la view my_managed_squads deve includerla.
++    const squadsFrom = isAdminNow ? "squads" : "my_managed_squads";
++    const s0 = await supabase
++      .from(squadsFrom)
++      .select("id,name")
++      .order("name");
++    if (s0.error) throw s0.error;
++
++    const squadsData = (s0.data ?? []) as Squad[];
++    setSquads(squadsData);
++
++    // ✅ auto-assegna se 1 sola squadra (così nel modal non serve select)
++    if (squadsData.length === 1) {
++      setSquadId(squadsData[0].id);
++    }
++
++    // ✅ BOOKINGS
++    await loadBookingsForDay();
+   } catch (e) {
+     console.error("load() error:", e);
+     // consigliato: window.location.href = "/login";
+   } finally {
+     setLoading(false);
+   }
+ }
+*** End Patch

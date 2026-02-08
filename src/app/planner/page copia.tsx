@@ -132,8 +132,8 @@ export default function PlannerPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [profilesById, setProfilesById] = useState<Map<string, Profile>>(new Map());
 
-  // responsive
-  const [isMobile, setIsMobile] = useState(false);
+// responsive
+const [isMobile, setIsMobile] = useState(false);
 
 /* =======================
    LOAD BOOKINGS (ROWS)
@@ -227,7 +227,70 @@ useEffect(() => {
   return () => window.removeEventListener("resize", onResize);
 }, []);
 
+useEffect(() => {
+  let cancelled = false;
 
+  (async () => {
+    setLoading(true);
+    try {
+      const auth = await ensureAuth();
+      if (cancelled) return;
+
+      setMe({ id: auth.user.id });
+      setIsAdmin(auth.roleLower === "admin");
+
+const r = await supabase.from("resources").select("id,name,type").order("id");
+
+console.log("RESOURCES FETCH", {
+  error: r.error?.message,
+  count: (r.data ?? []).length,
+  data: r.data,
+});
+
+if (r.error) throw r.error;
+      if (cancelled) return;
+
+      const all = (r.data ?? []) as Resource[];
+      const ordered = RESOURCE_ORDER
+        .map((n) => all.find((x) => x.name === n))
+        .filter(Boolean) as Resource[];
+
+      const inOrder = new Set(ordered.map((x) => x.id));
+      const tail = all.filter((x) => !inOrder.has(x.id));
+      setResources([...ordered, ...tail]);
+
+      const s =
+        auth.roleLower === "admin"
+          ? await supabase.from("squads").select("id,name").order("id")
+          : await supabase.from("my_managed_squads").select("id,name");
+
+console.log("SQUADS FETCH", {
+  roleLower: auth.roleLower,
+  error: s.error?.message,
+  count: (s.data ?? []).length,
+  data: s.data,
+});
+      if (s.error) throw s.error;
+
+      setSquads((s.data ?? []) as Squad[]);
+      await loadBookingsForDay();
+
+    } catch (e) {
+      console.error("Planner load error:", e);
+      if (!cancelled) {
+        setResources([]);
+        setSquads([]);
+        setRows([]);
+      }
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [day]);
 
   // modal
   const [openCreate, setOpenCreate] = useState(false);
@@ -434,8 +497,7 @@ async function load() {
     console.log("AUTH OK", { userId: auth.user.id, roleLower: auth.roleLower });
 
     setMe({ id: auth.user.id });
-    const isAdminNow = auth.roleLower === "admin";
-    setIsAdmin(isAdminNow);
+    setIsAdmin(auth.roleLower === "admin");
 
     const r = await supabase.from("resources").select("id,name,type").order("id");
     if (r.error) throw r.error;
@@ -451,50 +513,6 @@ async function load() {
     setResources([...ordered, ...tail]);
 
     // (qui sotto poi ci rimetti la parte che carica squads/rows, se la vuoi dentro load)
-    // --- SQUADS ---
-    // admin -> squads
-    // non-admin -> my_managed_squads (così un mister NON vede tutte le categorie)
-    const squadsFrom = isAdminNow ? "squads" : "my_managed_squads";
-
-    // Prova sort_order se disponibile nella view, altrimenti fallback su name
-    let squadsRaw: any[] | null = null;
-    let squadsErr: any = null;
-
-    {
-      const res = await supabase
-        .from(squadsFrom)
-        .select("id,name")
-        .order("name", { ascending: true });
-      squadsRaw = res.data as any[] | null;
-      squadsErr = res.error;
-    }
-
-    if (squadsErr) {
-      const msg = (squadsErr.message ?? "").toLowerCase();
-      const sortMissing =
-        msg.includes("sort_order") && (msg.includes("does not exist") || msg.includes("column"));
-      if (sortMissing) {
-        const res2 = await supabase
-          .from(squadsFrom)
-          .select("id,name")
-          .order("name", { ascending: true });
-        squadsRaw = res2.data as any[] | null;
-        squadsErr = res2.error;
-      }
-    }
-
-    if (squadsErr) throw squadsErr;
-
-    const squadsData = (squadsRaw ?? []) as Squad[];
-    setSquads(squadsData);
-
-    // se 1 sola squadra: assegnala direttamente (niente dropdown)
-    if (squadsData.length === 1) {
-      setSquadId(squadsData[0].id);
-    }
-// --- BOOKINGS ---
-    await loadBookingsForDay();
-
   } catch (e) {
     console.error("load() error:", e);
     // consigliato: window.location.href = "/login";
@@ -517,7 +535,7 @@ async function load() {
     setSelectedResource(res);
     setSelectedSlot(slotHHMM);
 
-    setSquadId(squads.length === 1 ? squads[0].id : "");
+    setSquadId("");
     setBookingType(isLocker(res) ? "MAINTENANCE" : "TRAINING");
 
     const st = clampToStep(slotHHMM);
@@ -1237,30 +1255,21 @@ closeAllModals();
                 <div style={{ fontWeight: 900, fontSize: 16, color: C.text }}>{day.format("DD/MM/YYYY")}</div>
               </div>
 
-{squads.length === 1 ? (
-  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    <span style={labelStyle}>Squadra</span>
-    <div style={{ ...inputStyle, display: "flex", alignItems: "center" }}>
-      {squads[0]?.name ?? "—"}
-    </div>
-  </div>
-) : (
-  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    <span style={labelStyle}>Squadra</span>
-    <select
-      style={inputStyle}
-      value={squadId === "" ? "" : String(squadId)}
-      onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
-    >
-      <option value="">— seleziona —</option>
-      {squads.map((s) => (
-        <option key={s.id} value={String(s.id)}>
-          {s.name}
-        </option>
-      ))}
-    </select>
-  </label>
-)}
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={labelStyle}>Squadra</span>
+                <select
+                  style={inputStyle}
+                  value={squadId === "" ? "" : String(squadId)}
+                  onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
+                >
+                  <option value="">— seleziona —</option>
+                  {squads.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Tipo</span>

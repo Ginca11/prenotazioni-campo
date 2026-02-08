@@ -1,0 +1,121 @@
+diff --git a/src/app/planner/page.tsx b/src/app/planner/page.tsx
+--- a/src/app/planner/page.tsx
++++ b/src/app/planner/page.tsx
+@@
+   /* =======================
+      AUTH + LOAD
+   ======================= */
+ 
+-  async function ensureAuth() {
+-    const { data } = await supabase.auth.getUser();
+-    if (!data.user) {
+-      window.location.href = "/login";
+-      return null;
+-    }
+-
+-    setMe({ id: data.user.id });
+-
+-    const p = await supabase
+-      .from("profiles")
+-      .select("id,full_name,role")
+-      .eq("id", data.user.id)
+-      .maybeSingle();
+-
+-    if (p.data) {
+-      setProfilesById((prev) => {
+-        const m = new Map(prev);
+-        m.set(p.data!.id, p.data as Profile);
+-        return m;
+-      });
+-      setIsAdmin((p.data.role ?? "").toLowerCase() === "admin");
+-    }
+-
+-    return data.user;
+-  }
++  async function ensureAuth() {
++    // Deterministico: ritorna { userId, roleLower } oppure reindirizza a /login e ritorna null
++    const { data, error } = await supabase.auth.getUser();
++    if (error) console.error("auth.getUser error:", error);
++
++    const user = data?.user ?? null;
++    if (!user) {
++      window.location.href = "/login";
++      return null;
++    }
++
++    const userId = user.id;
++    setMe({ id: userId });
++
++    const p = await supabase
++      .from("profiles")
++      .select("id,full_name,role")
++      .eq("id", userId)
++      .maybeSingle();
++
++    if (p.error) console.error("profiles load error:", p.error);
++
++    const roleLower = (p.data?.role ?? "").toLowerCase();
++
++    if (p.data) {
++      setProfilesById((prev) => {
++        const m = new Map(prev);
++        m.set(p.data!.id, p.data as Profile);
++        return m;
++      });
++    }
++
++    setIsAdmin(roleLower === "admin");
++
++    return { userId, roleLower };
++  }
+ 
+   async function load() {
+-    setLoading(true);
+-    const user = await ensureAuth();
+-    if (!user) return;
+-
+-    const r = await supabase.from("resources").select("id,name,type").order("id");
+-    const all = (r.data ?? []) as Resource[];
+-
+-    const ordered = RESOURCE_ORDER.map((n) => all.find((x) => x.name === n)).filter(Boolean) as Resource[];
+-    const inOrder = new Set(ordered.map((x) => x.id));
+-    const tail = all.filter((x) => !inOrder.has(x.id));
+-    setResources([...ordered, ...tail]);
+-
+-    const s = await supabase.from("squads").select("id,name").order("id");
+-    setSquads((s.data ?? []) as Squad[]);
++    setLoading(true);
++    try {
++      const auth = await ensureAuth();
++      if (!auth) return; // redirect già avviato
++
++      const r = await supabase.from("resources").select("id,name,type").order("id");
++      if (r.error) console.error("resources load error:", r.error);
++      const all = (r.data ?? []) as Resource[];
++
++      const ordered = RESOURCE_ORDER.map((n) => all.find((x) => x.name === n)).filter(Boolean) as Resource[];
++      const inOrder = new Set(ordered.map((x) => x.id));
++      const tail = all.filter((x) => !inOrder.has(x.id));
++      setResources([...ordered, ...tail]);
++
++      // ✅ Regola: admin vede tutte le squadre, gli altri solo le proprie
++      if (auth.roleLower === "admin") {
++        const s = await supabase.from("squads").select("id,name").order("id");
++        if (s.error) console.error("squads load error:", s.error);
++        setSquads((s.data ?? []) as Squad[]);
++      } else {
++        const s = await supabase.from("my_managed_squads").select("id,name").order("id");
++        if (s.error) console.error("my_managed_squads load error:", s.error);
++        setSquads((s.data ?? []) as Squad[]);
++      }
+ 
+     const dayStart = day.startOf("day").toISOString();
+     const dayEnd = day.add(1, "day").startOf("day").toISOString();
+@@
+     setRows(merged);
+-    setLoading(false);
++    } finally {
++      // ✅ mai più stallo su "Caricamento..."
++      setLoading(false);
++    }
+   }

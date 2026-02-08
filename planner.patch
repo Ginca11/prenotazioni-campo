@@ -1,0 +1,156 @@
+diff --git a/src/app/planner/page.tsx b/src/app/planner/page.tsx
+index 1111111..2222222 100644
+--- a/src/app/planner/page.tsx
++++ b/src/app/planner/page.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useEffect, useMemo, useState } from "react";
++import { useEffect, useMemo, useState } from "react";
+ import dayjs from "dayjs";
+ import { supabase } from "@/lib/supabaseClient";
+ import { RESOURCE_ORDER } from "@/lib/resources";
+@@ -95,6 +95,7 @@ export default function PlannerPage() {
+   const [me, setMe] = useState<{ id: string } | null>(null);
+   const [isAdmin, setIsAdmin] = useState(false);
+   const [profilesById, setProfilesById] = useState<Map<string, Profile>>(new Map());
++  const [myRole, setMyRole] = useState<string>(""); // admin / mister / bar_manager
+ 
+   // responsive
+   const [isMobile, setIsMobile] = useState(false);
+@@ -128,6 +129,7 @@ export default function PlannerPage() {
+   // form
+   const [squadId, setSquadId] = useState<number | "">("");
+   const [bookingType, setBookingType] = useState<BookingType>("TRAINING");
++  const [selectedSquadName, setSelectedSquadName] = useState<string>(""); // per label quando si nasconde la select
+ 
+   const [fieldModeUI, setFieldModeUI] = useState<FieldModeUI>("FULL");
+   const [startHHMM, setStartHHMM] = useState("15:00");
+@@ -292,38 +294,57 @@ export default function PlannerPage() {
+   async function ensureAuth() {
+     const { data } = await supabase.auth.getUser();
+     if (!data.user) {
+       window.location.href = "/login";
+       return null;
+     }
+ 
+     setMe({ id: data.user.id });
+ 
+     const p = await supabase
+       .from("profiles")
+       .select("id,full_name,role")
+       .eq("id", data.user.id)
+       .maybeSingle();
+ 
+-    if (p.data) {
++    const roleLower = (p.data?.role ?? "").toLowerCase();
++    setMyRole(roleLower);
++
++    if (p.data) {
+       setProfilesById((prev) => {
+         const m = new Map(prev);
+         m.set(p.data!.id, p.data as Profile);
+         return m;
+       });
+-      setIsAdmin((p.data.role ?? "").toLowerCase() === "admin");
++      setIsAdmin(roleLower === "admin");
+     }
+ 
+-    return data.user;
++    return { user: data.user, roleLower };
+   }
+ 
+   async function load() {
+     setLoading(true);
+-    const user = await ensureAuth();
+-    if (!user) return;
++    const auth = await ensureAuth();
++    if (!auth) return;
++    const { roleLower } = auth;
+ 
+     const r = await supabase.from("resources").select("id,name,type").order("id");
+     const all = (r.data ?? []) as Resource[];
+ 
+     const ordered = RESOURCE_ORDER.map((n) => all.find((x) => x.name === n)).filter(Boolean) as Resource[];
+     const inOrder = new Set(ordered.map((x) => x.id));
+     const tail = all.filter((x) => !inOrder.has(x.id));
+     setResources([...ordered, ...tail]);
+ 
+-    const s = await supabase.from("squads").select("id,name").order("id");
+-    setSquads((s.data ?? []) as Squad[]);
++    // ✅ squadre: admin vede tutte, gli altri solo le assegnate
++    if (roleLower === "admin") {
++      const s = await supabase.from("squads").select("id,name").order("id");
++      setSquads((s.data ?? []) as Squad[]);
++    } else {
++      const s = await supabase.from("my_managed_squads").select("id,name").order("name");
++      setSquads((s.data ?? []) as Squad[]);
++    }
+ 
+@@ -430,7 +451,16 @@ export default function PlannerPage() {
+   function resetFormForSlot(res: Resource, slotHHMM: string) {
+     setSubmitErr(null);
+     setSelectedResource(res);
+     setSelectedSlot(slotHHMM);
+ 
+-    setSquadId("");
++    // ✅ se ho una sola squadra, la seleziono automaticamente
++    if (squads.length === 1) {
++      setSquadId(squads[0].id);
++      setSelectedSquadName(squads[0].name);
++    } else {
++      setSquadId("");
++      setSelectedSquadName("");
++    }
+     setBookingType(isLocker(res) ? "MAINTENANCE" : "TRAINING");
+ 
+@@ -511,6 +541,8 @@ export default function PlannerPage() {
+     setSelectedSlot(dayjs(resRow.start_at).format("HH:mm"));
+ 
+     setSquadId(b?.squad_id ?? "");
++    setSelectedSquadName(b?.squad?.name ?? "");
+     setBookingType((b?.type as BookingType) ?? "TRAINING");
+     setNotes(b?.notes ?? "");
+ 
+@@ -826,29 +858,55 @@ export default function PlannerPage() {
+               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                 <span style={labelStyle}>Squadra</span>
+-                <select
+-                  style={inputStyle}
+-                  value={squadId === "" ? "" : String(squadId)}
+-                  onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
+-                >
+-                  <option value="">— seleziona —</option>
+-                  {squads.map((s) => (
+-                    <option key={s.id} value={String(s.id)}>
+-                      {s.name}
+-                    </option>
+-                  ))}
+-                </select>
++                {squads.length === 1 ? (
++                  <div style={{ ...inputStyle, display: "flex", alignItems: "center" }}>
++                    {selectedSquadName || squads[0]?.name || "—"}
++                  </div>
++                ) : (
++                  <select
++                    style={inputStyle}
++                    value={squadId === "" ? "" : String(squadId)}
++                    onChange={(e) => {
++                      const v = e.target.value ? Number(e.target.value) : "";
++                      setSquadId(v);
++                      const name =
++                        typeof v === "number"
++                          ? squads.find((x) => x.id === v)?.name ?? ""
++                          : "";
++                      setSelectedSquadName(name);
++                    }}
++                  >
++                    <option value="">— seleziona —</option>
++                    {squads.map((s) => (
++                      <option key={s.id} value={String(s.id)}>
++                        {s.name}
++                      </option>
++                    ))}
++                  </select>
++                )}
+               </label>

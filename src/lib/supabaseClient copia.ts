@@ -1,6 +1,3 @@
-// src/lib/supabaseClient.ts
-"use client";
-
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -8,10 +5,15 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
+    // fondamentale per recuperare la sessione da URL dopo verify/recovery
     detectSessionInUrl: true,
-    // esplicito, così non ci sono dubbi su storage
-    storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    // conserva la sessione tra refresh e tab
+    persistSession: true,
+    // storage standard (browser)
+    autoRefreshToken: true,
   },
 });
+console.log(
+  "SUPABASE URL runtime:",
+  process.env.NEXT_PUBLIC_SUPABASE_URL
+);

@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { ensureAuth } from "@/lib/ensureAuth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -15,6 +17,7 @@ import {
   columnGridLine,
   columnHeaderStyle,
 } from "@/features/planner/plannerUi";
+
 
 /* =======================
    TYPES

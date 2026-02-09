@@ -1,71 +1,47 @@
+# ===============================
+# Node / Next.js
+# ===============================
+node_modules/
+.next/
+out/
+dist/
+.env*
+.vercel/
 
+# ===============================
+# OS / Editor
+# ===============================
+.DS_Store
+.vscode/
+.idea/
 
-
-# --- local backups / archives (do not deploy) ---
+# ===============================
+# Local backups / archives (DO NOT DEPLOY)
+# ===============================
 _archive/
 archive/
 **/_archive/
+
 **/*.backup
 **/*.backup.*
 **/*.bak
 **/*.bak_*
-**/*.BACKUP-*.tsx
+**/*.BACKUP-*
 **/*.v1.stable.tsx
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+**/*.old
+**/*.tmp
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# ===============================
+# Logs
+# ===============================
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-*.bak
-
-# --- local backups / archives (do not deploy) ---
-_archive/
-archive/
-**/_archive/
-**/*.backup
-**/*.backup.*
-**/*.bak
-**/*.bak_*
-**/*.BACKUP-*.tsx
-**/*.v1.stable.tsx
-# --- local dev folders ---
-components/
-src/components/
-src/features/
-
+# ===============================
+# NOTE:
+# NON ignoriamo:
+# - src/features
+# - src/components
+# perché sono usati in produzione
+# ===============================

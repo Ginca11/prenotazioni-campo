@@ -2,13 +2,14 @@
 
 export const dynamic = "force-dynamic";
 
+import { C, btnStyleGhost, btnStylePrimary } from "@/features/planner/uiTokens";
 import { ensureAuth } from "@/lib/ensureAuth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import dayjs from "dayjs";
 import { supabase } from "@/lib/supabaseClient";
 import { RESOURCE_ORDER } from "@/lib/resources";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation"; // ✅ MOD: aggiunto useRouter
 
 import {
   colWidthFor,
@@ -17,7 +18,6 @@ import {
   columnGridLine,
   columnHeaderStyle,
 } from "@/features/planner/plannerUi";
-
 
 /* =======================
    TYPES
@@ -139,12 +139,20 @@ function parseDayFromQuery(raw: string | null) {
   return d;
 }
 
+// ✅ MOD: start settimana (lunedì) per navigare alla weekly coerente
+function startOfWeekMonday(d: dayjs.Dayjs) {
+  const dow = d.day(); // 0=dom,1=lun,...6=sab
+  const diff = dow === 0 ? -6 : 1 - dow;
+  return d.add(diff, "day").startOf("day");
+}
+
 /* =======================
    PAGE
 ======================= */
 
 export default function PlannerPage() {
   const searchParams = useSearchParams();
+  const router = useRouter(); // ✅ MOD
 
   const [day, setDay] = useState(dayjs());
 
@@ -235,28 +243,6 @@ export default function PlannerPage() {
      HIGH CONTRAST TOKENS
   ======================= */
 
-  const C = {
-    text: "#111827",
-    textMuted: "#1F2937",
-    cardBg: "#FFFFFF",
-    border: "#111827",
-    borderSoft: "#D1D5DB",
-    shadow: "0 10px 30px rgba(0,0,0,0.20)",
-    overlay: "rgba(0,0,0,0.60)",
-    inputBg: "#FFFFFF",
-    inputBorder: "#111827",
-    inputText: "#111827",
-    inputLabel: "#111827",
-    inputHint: "#374151",
-    buttonBg: "#111827",
-    buttonText: "#FFFFFF",
-    buttonBorder: "#111827",
-    buttonGhostBg: "#F3F4F6",
-    buttonGhostText: "#111827",
-    timeBg: "#E5E7EB",
-    timeLine: "rgba(17,24,39,0.25)",
-    gridLine: "rgba(17,24,39,0.12)",
-  };
 
   /* =======================
      TIME HELPERS
@@ -759,6 +745,12 @@ export default function PlannerPage() {
     window.location.href = "/login";
   }
 
+  // ✅ MOD: handler navigazione alla weekly coerente con il giorno selezionato
+  function goToWeekly() {
+    const weekStart = startOfWeekMonday(day).format("YYYY-MM-DD");
+    router.push(`/weekly?week=${weekStart}`);
+  }
+
   /* =======================
      RENDER BLOCKS
   ======================= */
@@ -894,23 +886,7 @@ export default function PlannerPage() {
     opacity: 1,
   };
 
-  const btnStylePrimary: CSSProperties = {
-    background: C.buttonBg,
-    color: C.buttonText,
-    border: `2px solid ${C.buttonBorder}`,
-    borderRadius: 12,
-    padding: "10px 14px",
-    fontWeight: 900,
-  };
 
-  const btnStyleGhost: CSSProperties = {
-    background: C.buttonGhostBg,
-    color: C.buttonGhostText,
-    border: `2px solid ${C.buttonBorder}`,
-    borderRadius: 12,
-    padding: "10px 14px",
-    fontWeight: 900,
-  };
 
   const timeValueBox: CSSProperties = {
     border: `2px solid ${C.inputBorder}`,
@@ -1002,6 +978,11 @@ export default function PlannerPage() {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {/* ✅ MOD: pulsante Daily → Weekly */}
+          <button style={btnStyleGhost} onClick={goToWeekly} title="Vai al planner settimanale (settimana corrente del giorno selezionato)">
+            Settimana
+          </button>
+
           <button style={btnStyleGhost} onClick={() => setDay(day.subtract(1, "day"))}>
             ◀
           </button>

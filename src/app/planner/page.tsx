@@ -1,10 +1,20 @@
 "use client";
 
 import { ensureAuth } from "@/lib/ensureAuth";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import dayjs from "dayjs";
 import { supabase } from "@/lib/supabaseClient";
 import { RESOURCE_ORDER } from "@/lib/resources";
+import { useSearchParams } from "next/navigation";
+
+import {
+  colWidthFor,
+  displayResourceName,
+  columnBg,
+  columnGridLine,
+  columnHeaderStyle,
+} from "@/features/planner/plannerUi";
 
 /* =======================
    TYPES
@@ -63,6 +73,7 @@ type RenderBlock = {
   status: string;
   created_by: string;
   is_minibus: boolean;
+  notes: string | null;
 };
 
 /* =======================
@@ -115,11 +126,23 @@ function colorForSquad(squadName: string) {
   return palette[Math.abs(hash) % palette.length];
 }
 
+function parseDayFromQuery(raw: string | null) {
+  // accetta solo YYYY-MM-DD, evita ambiguità
+  if (!raw) return null;
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  if (!ok) return null;
+  const d = dayjs(raw);
+  if (!d.isValid()) return null;
+  return d;
+}
+
 /* =======================
    PAGE
 ======================= */
 
 export default function PlannerPage() {
+  const searchParams = useSearchParams();
+
   const [day, setDay] = useState(dayjs());
 
   const [resources, setResources] = useState<Resource[]>([]);
@@ -135,99 +158,28 @@ export default function PlannerPage() {
   // responsive
   const [isMobile, setIsMobile] = useState(false);
 
-/* =======================
-   LOAD BOOKINGS (ROWS)
-======================= */
-async function loadBookingsForDay() {
-  const dayStart = day.startOf("day").toISOString();
-  const dayEnd = day.add(1, "day").startOf("day").toISOString();
+  // IMPORTANT: inizializza la data dal query param ?date=YYYY-MM-DD (es. da weekly)
+  const didInitFromQueryRef = useRef(false);
+  useEffect(() => {
+    // Esegue una sola volta (prima inizializzazione) per evitare loop
+    if (didInitFromQueryRef.current) return;
+    didInitFromQueryRef.current = true;
 
-  const br0 = await supabase
-    .from("booking_resources")
-    .select("booking_id,resource_id,start_at,end_at,resources(id,name,type)")
-    .gte("start_at", dayStart)
-    .lt("start_at", dayEnd);
+    const q = searchParams.get("date");
+    const parsed = parseDayFromQuery(q);
 
-  console.log("BOOKING_RES FETCH", {
-    error: br0.error?.message,
-    count: (br0.data ?? []).length,
-  });
+    if (parsed && !parsed.isSame(day, "day")) {
+      setDay(parsed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
-  if (br0.error) throw br0.error;
-
-  const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
-    booking_id: x.booking_id,
-    resource_id: x.resource_id,
-    start_at: x.start_at,
-    end_at: x.end_at,
-    resources: x.resources ?? null,
-  }));
-
-  const bookingIds = Array.from(new Set(brData.map((x) => x.booking_id)));
-
-  let bookingsById = new Map<number, BookingRow>();
-  if (bookingIds.length) {
-    const b0 = await supabase
-      .from("bookings")
-      .select("id,status,type,notes,squad_id,created_by,series_id")
-      .in("id", bookingIds);
-
-    if (b0.error) throw b0.error;
-    bookingsById = new Map((b0.data ?? []).map((b: any) => [b.id, b as BookingRow]));
-  }
-
-  const squadIds = Array.from(
-    new Set(Array.from(bookingsById.values()).map((b) => b.squad_id).filter(Boolean))
-  );
-
-  let squadsById = new Map<number, Squad>();
-  if (squadIds.length) {
-    const s0 = await supabase.from("squads").select("id,name").in("id", squadIds);
-    if (s0.error) throw s0.error;
-    squadsById = new Map((s0.data ?? []).map((x: any) => [x.id, x as Squad]));
-  }
-
-  const creatorIds = Array.from(
-    new Set(Array.from(bookingsById.values()).map((b) => b.created_by).filter(Boolean))
-  );
-
-  if (creatorIds.length) {
-    const p0 = await supabase.from("profiles").select("id,full_name,role").in("id", creatorIds);
-    if (p0.error) throw p0.error;
-
-    setProfilesById((prev) => {
-      const m = new Map(prev);
-      for (const p of (p0.data ?? []) as Profile[]) m.set(p.id, p);
-      return m;
-    });
-  }
-
-  const merged: BookingResRow[] = brData.map((r) => {
-    const b = bookingsById.get(r.booking_id);
-    const sq = b ? squadsById.get(b.squad_id) : undefined;
-
-    return {
-      ...r,
-      booking: b
-        ? ({
-            ...b,
-            squad: sq ? { id: sq.id, name: sq.name } : null,
-          } as any)
-        : null,
-    };
-  });
-
-  setRows(merged);
-}
-
-useEffect(() => {
-  const onResize = () => setIsMobile(window.innerWidth < 640);
-  onResize();
-  window.addEventListener("resize", onResize);
-  return () => window.removeEventListener("resize", onResize);
-}, []);
-
-
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // modal
   const [openCreate, setOpenCreate] = useState(false);
@@ -272,9 +224,6 @@ useEffect(() => {
   const timeColWidth = isMobile ? 66 : 76;
 
   const fieldColWidth = isMobile ? 132 : 180;
-  const lockerColWidth = isMobile ? 94 : 110;
-  const miniColWidth = isMobile ? 122 : 160;
-  const minibusColWidth = isMobile ? 122 : 160;
 
   const headerPad = isMobile ? 6 : 8;
   const baseFont = isMobile ? 13 : 13;
@@ -330,13 +279,13 @@ useEffect(() => {
   }
 
   function addMinutesToHHMM(hhmm: string, deltaMin: number) {
-    // usa la data corrente del planner per fare add robusto
-    const t = dayjs(`${day.format("YYYY-MM-DD")}T${hhmm}`).add(deltaMin, "minute").format("HH:mm");
+    const t = dayjs(`${day.format("YYYY-MM-DD")}T${hhmm}`)
+      .add(deltaMin, "minute")
+      .format("HH:mm");
     return clampToStep(t);
   }
 
   function ensureEndAfterStartHHMM(start: string, end: string) {
-    // Regola: Fine deve essere strettamente dopo Inizio
     if (hhmmToMinutes(end) <= hhmmToMinutes(start)) return addMinutesToHHMM(start, stepMin);
     return end;
   }
@@ -365,18 +314,11 @@ useEffect(() => {
       t = t.add(stepMin, "minute");
     }
     return arr;
-  }, [day, startHour]);
+  }, [day, startHour, endHour, stepMin]);
 
   const lockerResources = useMemo(() => resources.filter(isLocker), [resources]);
   const fieldAId = useMemo(() => resources.find((r) => r.name === "Campo A")?.id ?? null, [resources]);
   const fieldBId = useMemo(() => resources.find((r) => r.name === "Campo B")?.id ?? null, [resources]);
-
-  function colWidthFor(res: Resource) {
-    if (isLocker(res)) return lockerColWidth;
-    if (isMiniField(res)) return miniColWidth;
-    if (isMinibus(res)) return minibusColWidth;
-    return fieldColWidth;
-  }
 
   function computeRpcFieldMode(res: Resource): "A" | "B" | "FULL" {
     if (isMainFieldA(res)) return "A";
@@ -387,121 +329,153 @@ useEffect(() => {
   }
 
   /* =======================
-     COLUMN COLORS
+     LOAD BOOKINGS (ROWS)
   ======================= */
 
-  const lockerBgPalette = ["#C2410C", "#EA580C", "#F59E0B", "#FBBF24", "#FDE68A", "#FEF3C7"];
+  async function loadBookingsForDay() {
+    const dayStart = day.startOf("day").toISOString();
+    const dayEnd = day.add(1, "day").startOf("day").toISOString();
 
-  const lockerBgById = useMemo(() => {
-    const m = new Map<number, string>();
-    const lockers = resources.filter(isLocker);
-    for (let i = 0; i < lockers.length; i++) {
-      m.set(lockers[i].id, lockerBgPalette[i % lockerBgPalette.length]);
+    const br0 = await supabase
+      .from("booking_resources")
+      .select("booking_id,resource_id,start_at,end_at,resources(id,name,type)")
+      .gte("start_at", dayStart)
+      .lt("start_at", dayEnd);
+
+    console.log("BOOKING_RES FETCH", {
+      error: br0.error?.message,
+      count: (br0.data ?? []).length,
+    });
+
+    if (br0.error) throw br0.error;
+
+    const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
+      booking_id: x.booking_id,
+      resource_id: x.resource_id,
+      start_at: x.start_at,
+      end_at: x.end_at,
+      resources: x.resources ?? null,
+    }));
+
+    const bookingIds = Array.from(new Set(brData.map((x) => x.booking_id)));
+
+    let bookingsById = new Map<number, BookingRow>();
+    if (bookingIds.length) {
+      const b0 = await supabase
+        .from("bookings")
+        .select("id,status,type,notes,squad_id,created_by,series_id")
+        .in("id", bookingIds);
+
+      if (b0.error) throw b0.error;
+      bookingsById = new Map((b0.data ?? []).map((b: any) => [b.id, b as BookingRow]));
     }
-    return m;
-  }, [resources]);
 
-  function columnBg(res: Resource) {
-    if (isMainFieldA(res) || isMainFieldB(res)) return "#0B3D2E"; // verde scuro
-    if (isMiniField(res)) return "#1F7A4D"; // verde chiaro
-    if (isLocker(res)) return lockerBgById.get(res.id) ?? "#F59E0B"; // giallo/arancio
-    if (isMinibus(res)) return "#0EA5E9"; // azzurro
-    return "#F8FAFC";
-  }
+    const squadIds = Array.from(
+      new Set(Array.from(bookingsById.values()).map((b) => b.squad_id).filter(Boolean))
+    );
 
-  function columnHeaderTextColor(res: Resource) {
-    if (isMainFieldA(res) || isMainFieldB(res) || isMiniField(res) || isMinibus(res)) return "#FFFFFF";
-    if (isLocker(res)) return "#111827";
-    return "#111827";
-  }
+    let squadsById = new Map<number, Squad>();
+    if (squadIds.length) {
+      const s0 = await supabase.from("squads").select("id,name").in("id", squadIds);
+      if (s0.error) throw s0.error;
+      squadsById = new Map((s0.data ?? []).map((x: any) => [x.id, x as Squad]));
+    }
 
-  function columnGridLine(res: Resource) {
-    if (isMainFieldA(res) || isMainFieldB(res) || isMiniField(res) || isMinibus(res)) return "rgba(255,255,255,0.18)";
-    if (isLocker(res)) return "rgba(17,24,39,0.20)";
-    return C.gridLine;
+    const creatorIds = Array.from(
+      new Set(Array.from(bookingsById.values()).map((b) => b.created_by).filter(Boolean))
+    );
+
+    if (creatorIds.length) {
+      const p0 = await supabase.from("profiles").select("id,full_name,role").in("id", creatorIds);
+      if (p0.error) throw p0.error;
+
+      setProfilesById((prev) => {
+        const m = new Map(prev);
+        for (const p of (p0.data ?? []) as Profile[]) m.set(p.id, p);
+        return m;
+      });
+    }
+
+    const merged: BookingResRow[] = brData.map((r) => {
+      const b = bookingsById.get(r.booking_id);
+      const sq = b ? squadsById.get(b.squad_id) : undefined;
+
+      return {
+        ...r,
+        booking: b
+          ? ({
+              ...b,
+              squad: sq ? { id: sq.id, name: sq.name } : null,
+            } as any)
+          : null,
+      };
+    });
+
+    setRows(merged);
   }
 
   /* =======================
      AUTH + LOAD
   ======================= */
 
+  async function load() {
+    setLoading(true);
+    try {
+      const auth = await ensureAuth();
+      console.log("AUTH OK", { userId: auth.user.id, roleLower: auth.roleLower });
 
+      setMe({ id: auth.user.id });
+      const isAdminNow = auth.roleLower === "admin";
+      setIsAdmin(isAdminNow);
 
-async function load() {
-  setLoading(true);
-  try {
-    const auth = await ensureAuth(); // se fallisce -> throw
-    console.log("AUTH OK", { userId: auth.user.id, roleLower: auth.roleLower });
+      const r = await supabase.from("resources").select("id,name,type").order("id");
+      if (r.error) throw r.error;
 
-    setMe({ id: auth.user.id });
-    const isAdminNow = auth.roleLower === "admin";
-    setIsAdmin(isAdminNow);
+      const all = (r.data ?? []) as Resource[];
 
-    const r = await supabase.from("resources").select("id,name,type").order("id");
-    if (r.error) throw r.error;
+      const ordered = RESOURCE_ORDER.map((n) => all.find((x) => x.name === n)).filter(Boolean) as Resource[];
 
-    const all = (r.data ?? []) as Resource[];
+      const inOrder = new Set(ordered.map((x) => x.id));
+      const tail = all.filter((x) => !inOrder.has(x.id));
+      setResources([...ordered, ...tail]);
 
-    const ordered = RESOURCE_ORDER
-      .map((n) => all.find((x) => x.name === n))
-      .filter(Boolean) as Resource[];
+      const squadsFrom = isAdminNow ? "squads" : "my_managed_squads";
 
-    const inOrder = new Set(ordered.map((x) => x.id));
-    const tail = all.filter((x) => !inOrder.has(x.id));
-    setResources([...ordered, ...tail]);
+      let squadsRaw: any[] | null = null;
+      let squadsErr: any = null;
 
-    // (qui sotto poi ci rimetti la parte che carica squads/rows, se la vuoi dentro load)
-    // --- SQUADS ---
-    // admin -> squads
-    // non-admin -> my_managed_squads (così un mister NON vede tutte le categorie)
-    const squadsFrom = isAdminNow ? "squads" : "my_managed_squads";
-
-    // Prova sort_order se disponibile nella view, altrimenti fallback su name
-    let squadsRaw: any[] | null = null;
-    let squadsErr: any = null;
-
-    {
-      const res = await supabase
-        .from(squadsFrom)
-        .select("id,name")
-        .order("name", { ascending: true });
-      squadsRaw = res.data as any[] | null;
-      squadsErr = res.error;
-    }
-
-    if (squadsErr) {
-      const msg = (squadsErr.message ?? "").toLowerCase();
-      const sortMissing =
-        msg.includes("sort_order") && (msg.includes("does not exist") || msg.includes("column"));
-      if (sortMissing) {
-        const res2 = await supabase
-          .from(squadsFrom)
-          .select("id,name")
-          .order("name", { ascending: true });
-        squadsRaw = res2.data as any[] | null;
-        squadsErr = res2.error;
+      {
+        const res = await supabase.from(squadsFrom).select("id,name").order("name", { ascending: true });
+        squadsRaw = res.data as any[] | null;
+        squadsErr = res.error;
       }
+
+      if (squadsErr) {
+        const msg = (squadsErr.message ?? "").toLowerCase();
+        const sortMissing = msg.includes("sort_order") && (msg.includes("does not exist") || msg.includes("column"));
+        if (sortMissing) {
+          const res2 = await supabase.from(squadsFrom).select("id,name").order("name", { ascending: true });
+          squadsRaw = res2.data as any[] | null;
+          squadsErr = res2.error;
+        }
+      }
+
+      if (squadsErr) throw squadsErr;
+
+      const squadsData = (squadsRaw ?? []) as Squad[];
+      setSquads(squadsData);
+
+      if (squadsData.length === 1) {
+        setSquadId(squadsData[0].id);
+      }
+
+      await loadBookingsForDay();
+    } catch (e) {
+      console.error("load() error:", e);
+    } finally {
+      setLoading(false);
     }
-
-    if (squadsErr) throw squadsErr;
-
-    const squadsData = (squadsRaw ?? []) as Squad[];
-    setSquads(squadsData);
-
-    // se 1 sola squadra: assegnala direttamente (niente dropdown)
-    if (squadsData.length === 1) {
-      setSquadId(squadsData[0].id);
-    }
-// --- BOOKINGS ---
-    await loadBookingsForDay();
-
-  } catch (e) {
-    console.error("load() error:", e);
-    // consigliato: window.location.href = "/login";
-  } finally {
-    setLoading(false);
   }
-}
 
   useEffect(() => {
     load();
@@ -522,11 +496,8 @@ async function load() {
 
     const st = clampToStep(slotHHMM);
 
-    // ✅ default 2 ore (come da tua scelta)
     const en = clampToStep(
-      dayjs(`${day.format("YYYY-MM-DD")}T${slotHHMM}`)
-        .add(120, "minute")
-        .format("HH:mm")
+      dayjs(`${day.format("YYYY-MM-DD")}T${slotHHMM}`).add(120, "minute").format("HH:mm")
     );
 
     setStartHHMM(st);
@@ -579,8 +550,7 @@ async function load() {
     const b = brs[0]?.booking ?? null;
 
     const fieldRow =
-      brs.find((x) => pickResource(x)?.name === "Campo A") ||
-      brs.find((x) => pickResource(x)?.name === "Campo B");
+      brs.find((x) => pickResource(x)?.name === "Campo A") || brs.find((x) => pickResource(x)?.name === "Campo B");
 
     const resRow = fieldRow ?? brs[0];
     const res = resources.find((r) => r.id === resRow.resource_id) ?? null;
@@ -658,7 +628,11 @@ async function load() {
         if (del.error) throw del.error;
       }
 
-      const seriesId = isRecurring ? (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`) : null;
+      const seriesId = isRecurring
+        ? crypto?.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`
+        : null;
 
       for (const bookingDay of daysToCreate) {
         const startIso = dayTimeToIsoFor(bookingDay, startHHMM);
@@ -695,18 +669,33 @@ async function load() {
         const rowsToInsert: any[] = [];
 
         if (minibus) {
-          rowsToInsert.push({ booking_id: newBookingId, resource_id: selectedResource.id, start_at: startIso, end_at: endIso });
+          rowsToInsert.push({
+            booking_id: newBookingId,
+            resource_id: selectedResource.id,
+            start_at: startIso,
+            end_at: endIso,
+          });
         } else if (lockerOnly) {
           const baseLockerId = selectedResource.id;
           const lockerIds = new Set<number>([baseLockerId, ...chosenLockerIds]);
           for (const lid of lockerIds) {
-            rowsToInsert.push({ booking_id: newBookingId, resource_id: lid, start_at: startIso, end_at: endIso });
+            rowsToInsert.push({
+              booking_id: newBookingId,
+              resource_id: lid,
+              start_at: startIso,
+              end_at: endIso,
+            });
           }
         } else {
           const rpcMode = computeRpcFieldMode(selectedResource);
 
           if (isMiniField(selectedResource)) {
-            rowsToInsert.push({ booking_id: newBookingId, resource_id: selectedResource.id, start_at: startIso, end_at: endIso });
+            rowsToInsert.push({
+              booking_id: newBookingId,
+              resource_id: selectedResource.id,
+              start_at: startIso,
+              end_at: endIso,
+            });
           } else {
             if (rpcMode === "A") {
               if (!fieldAId) throw new Error("Campo A non trovato.");
@@ -722,7 +711,12 @@ async function load() {
           }
 
           for (const lid of chosenLockerIds) {
-            rowsToInsert.push({ booking_id: newBookingId, resource_id: lid, start_at: lockerStartIso, end_at: lockerEndIso });
+            rowsToInsert.push({
+              booking_id: newBookingId,
+              resource_id: lid,
+              start_at: lockerStartIso,
+              end_at: lockerEndIso,
+            });
           }
         }
 
@@ -733,8 +727,8 @@ async function load() {
         }
       }
 
-await loadBookingsForDay();
-closeAllModals();
+      await loadBookingsForDay();
+      closeAllModals();
     } catch (e: any) {
       setSubmitErr(niceDbError(e?.message ?? "Errore"));
     } finally {
@@ -753,8 +747,8 @@ closeAllModals();
 
     if (error) return setSubmitErr(niceDbError(error.message));
 
-await loadBookingsForDay();
-closeAllModals();
+    await loadBookingsForDay();
+    closeAllModals();
   }
 
   async function logout() {
@@ -783,6 +777,8 @@ closeAllModals();
       const status = b?.status ?? "—";
       const createdBy = b?.created_by ?? "";
       const coachName = createdBy ? profilesById.get(createdBy)?.full_name ?? "—" : "—";
+
+      const blockNotes = (b?.notes ?? "").trim() || null;
 
       const hasA = fieldAId ? brs.some((x) => x.resource_id === fieldAId) : false;
       const hasB = fieldBId ? brs.some((x) => x.resource_id === fieldBId) : false;
@@ -818,6 +814,7 @@ closeAllModals();
           status,
           created_by: createdBy,
           is_minibus: isMin,
+          notes: blockNotes,
         });
       }
 
@@ -836,6 +833,7 @@ closeAllModals();
           status,
           created_by: createdBy,
           is_minibus: isMin,
+          notes: blockNotes,
         });
       }
     }
@@ -854,13 +852,13 @@ closeAllModals();
   }, [renderBlocks]);
 
   const minWidthTotal = useMemo(() => {
-    const w = resources.reduce((sum, r) => sum + colWidthFor(r), 0);
+    const w = resources.reduce((sum, r) => sum + colWidthFor(r, fieldColWidth), 0);
     return timeColWidth + w;
-  }, [resources, timeColWidth]);
+  }, [resources, timeColWidth, fieldColWidth]);
 
   const fieldBWidth = useMemo(() => {
     const rb = resources.find((r) => r.name === "Campo B");
-    return rb ? colWidthFor(rb) : fieldColWidth;
+    return rb ? colWidthFor(rb, fieldColWidth) : fieldColWidth;
   }, [resources, fieldColWidth]);
 
   /* =======================
@@ -869,8 +867,7 @@ closeAllModals();
 
   const dateInputValue = day.format("YYYY-MM-DD");
 
-  // ✅ input/select più leggibili (soprattutto su iOS)
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     padding: isMobile ? "10px 10px" : "8px 10px",
     border: `2px solid ${C.inputBorder}`,
     borderRadius: 12,
@@ -881,20 +878,20 @@ closeAllModals();
     minHeight: 42,
   };
 
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     fontSize: 13,
     fontWeight: 900,
     color: C.inputLabel,
   };
 
-  const hintStyle: React.CSSProperties = {
+  const hintStyle: CSSProperties = {
     fontSize: 12,
     fontWeight: 800,
     color: C.inputHint,
     opacity: 1,
   };
 
-  const btnStylePrimary: React.CSSProperties = {
+  const btnStylePrimary: CSSProperties = {
     background: C.buttonBg,
     color: C.buttonText,
     border: `2px solid ${C.buttonBorder}`,
@@ -903,7 +900,7 @@ closeAllModals();
     fontWeight: 900,
   };
 
-  const btnStyleGhost: React.CSSProperties = {
+  const btnStyleGhost: CSSProperties = {
     background: C.buttonGhostBg,
     color: C.buttonGhostText,
     border: `2px solid ${C.buttonBorder}`,
@@ -912,8 +909,7 @@ closeAllModals();
     fontWeight: 900,
   };
 
-  // ✅ controlli orario "mobile-first"
-  const timeValueBox: React.CSSProperties = {
+  const timeValueBox: CSSProperties = {
     border: `2px solid ${C.inputBorder}`,
     borderRadius: 14,
     padding: isMobile ? "12px 12px" : "10px 12px",
@@ -926,7 +922,7 @@ closeAllModals();
     userSelect: "none",
   };
 
-  const stepBtnBase: React.CSSProperties = {
+  const stepBtnBase: CSSProperties = {
     minHeight: 54,
     borderRadius: 14,
     padding: "12px 16px",
@@ -938,15 +934,15 @@ closeAllModals();
     width: "100%",
   };
 
-  const stepBtnMinus: React.CSSProperties = {
+  const stepBtnMinus: CSSProperties = {
     ...stepBtnBase,
-    background: "#BBF7D0", // verde chiaro
+    background: "#BBF7D0",
     color: "#064E3B",
   };
 
-  const stepBtnPlus: React.CSSProperties = {
+  const stepBtnPlus: CSSProperties = {
     ...stepBtnBase,
-    background: "#FED7AA", // arancio chiaro
+    background: "#FED7AA",
     color: "#7C2D12",
   };
 
@@ -954,7 +950,6 @@ closeAllModals();
     const nextStart = addMinutesToHHMM(startHHMM, delta);
     setStartHHMM(nextStart);
 
-    // Regola: se Inizio supera/uguaglia Fine -> Fine = Inizio + 10
     if (hhmmToMinutes(nextStart) >= hhmmToMinutes(endHHMM)) {
       setEndHHMM(addMinutesToHHMM(nextStart, stepMin));
     }
@@ -962,7 +957,6 @@ closeAllModals();
 
   function bumpEnd(delta: number) {
     const nextEnd = addMinutesToHHMM(endHHMM, delta);
-    // Regola: se Fine scende sotto/uguaglia Inizio -> auto-corretta a Inizio + 10
     setEndHHMM(ensureEndAfterStartHHMM(startHHMM, nextEnd));
   }
 
@@ -990,7 +984,15 @@ closeAllModals();
               />
             </div>
 
-            <div style={{ fontWeight: 900, fontSize: isMobile ? 20 : 22, letterSpacing: "0.2px", whiteSpace: "nowrap", color: C.text }}>
+            <div
+              style={{
+                fontWeight: 900,
+                fontSize: isMobile ? 20 : 22,
+                letterSpacing: "0.2px",
+                whiteSpace: "nowrap",
+                color: C.text,
+              }}
+            >
               S.S. Stivo
             </div>
           </div>
@@ -1046,20 +1048,8 @@ closeAllModals();
             </div>
 
             {resources.map((r) => (
-              <div
-                key={r.id}
-                style={{
-                  width: colWidthFor(r),
-                  padding: headerPad,
-                  fontWeight: 900,
-                  whiteSpace: "nowrap",
-                  background: columnBg(r),
-                  color: columnHeaderTextColor(r),
-                  borderRight: "1px solid rgba(0,0,0,0.15)",
-                  textShadow: columnHeaderTextColor(r) === "#FFFFFF" ? "0 1px 1px rgba(0,0,0,0.35)" : "none",
-                }}
-              >
-                {r.name}
+              <div key={r.id} style={columnHeaderStyle(r, fieldColWidth, headerPad)}>
+                {displayResourceName(r)}
               </div>
             ))}
           </div>
@@ -1089,7 +1079,7 @@ closeAllModals();
                     alignItems: "center",
                     background: C.timeBg,
                     color: C.text,
-                    borderBottom: `1px solid ${C.timeLine}`, // ✅ righe 10 minuti ben visibili
+                    borderBottom: `1px solid ${C.timeLine}`,
                   }}
                 >
                   {t.minute() === 0 ? t.format("HH:mm") : ""}
@@ -1100,7 +1090,7 @@ closeAllModals();
             {/* COLONNE RISORSE */}
             {resources.map((res) => {
               const blocks = blocksByAnchor.get(res.id) ?? [];
-              const w = colWidthFor(res);
+              const w = colWidthFor(res, fieldColWidth);
               const bg = columnBg(res);
               const gridLine = columnGridLine(res);
 
@@ -1183,6 +1173,25 @@ closeAllModals();
                         <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900, color: "#111827" }}>
                           {b.booking_type} · {b.coach_name}
                         </div>
+                        {b.notes && (
+                          <div
+                            title={b.notes}
+                            style={{
+                              marginTop: 4,
+                              fontSize: isMobile ? 10 : 11,
+                              fontWeight: 800,
+                              color: "#111827",
+                              opacity: 0.95,
+                              overflow: "hidden",
+                              display: "-webkit-box",
+                              WebkitBoxOrient: "vertical",
+                              WebkitLineClamp: isMobile ? 1 : 2,
+                              lineHeight: 1.15,
+                            }}
+                          >
+                            {b.notes}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1200,7 +1209,7 @@ closeAllModals();
           style={{
             position: "fixed",
             inset: 0,
-            background: C.overlay, // ✅ overlay più scuro
+            background: C.overlay,
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
@@ -1223,7 +1232,9 @@ closeAllModals();
               color: C.text,
             }}
           >
-            <h3 style={{ marginTop: 0, fontWeight: 900, color: C.text }}>{openCreate ? "Nuova prenotazione" : "Dettagli prenotazione"}</h3>
+            <h3 style={{ marginTop: 0, fontWeight: 900, color: C.text }}>
+              {openCreate ? "Nuova prenotazione" : "Dettagli prenotazione"}
+            </h3>
 
             {/* FORM */}
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -1237,30 +1248,28 @@ closeAllModals();
                 <div style={{ fontWeight: 900, fontSize: 16, color: C.text }}>{day.format("DD/MM/YYYY")}</div>
               </div>
 
-{squads.length === 1 ? (
-  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    <span style={labelStyle}>Squadra</span>
-    <div style={{ ...inputStyle, display: "flex", alignItems: "center" }}>
-      {squads[0]?.name ?? "—"}
-    </div>
-  </div>
-) : (
-  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    <span style={labelStyle}>Squadra</span>
-    <select
-      style={inputStyle}
-      value={squadId === "" ? "" : String(squadId)}
-      onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
-    >
-      <option value="">— seleziona —</option>
-      {squads.map((s) => (
-        <option key={s.id} value={String(s.id)}>
-          {s.name}
-        </option>
-      ))}
-    </select>
-  </label>
-)}
+              {squads.length === 1 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={labelStyle}>Squadra</span>
+                  <div style={{ ...inputStyle, display: "flex", alignItems: "center" }}>{squads[0]?.name ?? "—"}</div>
+                </div>
+              ) : (
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={labelStyle}>Squadra</span>
+                  <select
+                    style={inputStyle}
+                    value={squadId === "" ? "" : String(squadId)}
+                    onChange={(e) => setSquadId(e.target.value ? Number(e.target.value) : "")}
+                  >
+                    <option value="">— seleziona —</option>
+                    {squads.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Tipo</span>
@@ -1271,7 +1280,7 @@ closeAllModals();
                 </select>
               </label>
 
-              {/* ✅ INIZIO - controlli a bottoni */}
+              {/* INIZIO */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Inizio</span>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, alignItems: "stretch" }}>
@@ -1286,7 +1295,7 @@ closeAllModals();
                 <div style={hintStyle}>Tap per correggere di 10 minuti</div>
               </div>
 
-              {/* ✅ FINE - controlli a bottoni */}
+              {/* FINE */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Fine</span>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, alignItems: "stretch" }}>
@@ -1346,12 +1355,22 @@ closeAllModals();
 
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Spogliatoi: minuti prima</span>
-                <input style={inputStyle} type="number" value={lockerBeforeMin} onChange={(e) => setLockerBeforeMin(Number(e.target.value || 0))} />
+                <input
+                  style={inputStyle}
+                  type="number"
+                  value={lockerBeforeMin}
+                  onChange={(e) => setLockerBeforeMin(Number(e.target.value || 0))}
+                />
               </label>
 
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Spogliatoi: minuti dopo</span>
-                <input style={inputStyle} type="number" value={lockerAfterMin} onChange={(e) => setLockerAfterMin(Number(e.target.value || 0))} />
+                <input
+                  style={inputStyle}
+                  type="number"
+                  value={lockerAfterMin}
+                  onChange={(e) => setLockerAfterMin(Number(e.target.value || 0))}
+                />
               </label>
 
               <label style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1367,7 +1386,12 @@ closeAllModals();
               {openCreate && (
                 <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 900, color: C.text }}>
-                    <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} style={{ transform: "scale(1.2)" }} />
+                    <input
+                      type="checkbox"
+                      checked={isRecurring}
+                      onChange={(e) => setIsRecurring(e.target.checked)}
+                      style={{ transform: "scale(1.2)" }}
+                    />
                     Ripeti ogni settimana
                   </label>
 

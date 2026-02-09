@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+
+    // Project-specific ignores:
+    "archive/**",
+    "**/*copia*.tsx",
+    "**/PAGES copie/**",
   ]),
 ]);
 

@@ -1,3 +1,16 @@
+
+
+
+# --- local backups / archives (do not deploy) ---
+_archive/
+archive/
+**/_archive/
+**/*.backup
+**/*.backup.*
+**/*.bak
+**/*.bak_*
+**/*.BACKUP-*.tsx
+**/*.v1.stable.tsx
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -40,3 +53,19 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 *.bak
+
+# --- local backups / archives (do not deploy) ---
+_archive/
+archive/
+**/_archive/
+**/*.backup
+**/*.backup.*
+**/*.bak
+**/*.bak_*
+**/*.BACKUP-*.tsx
+**/*.v1.stable.tsx
+# --- local dev folders ---
+components/
+src/components/
+src/features/
+

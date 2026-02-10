@@ -369,26 +369,54 @@ if (process.env.NODE_ENV !== "production") {
       new Set(Array.from(bookingsById.values()).map((b) => b.squad_id).filter(Boolean))
     );
 
-    let squadsById = new Map<number, Squad>();
-    if (squadIds.length) {
-      const s0 = await supabase.from("squads").select("id,name").in("id", squadIds);
-      if (!s0.error) squadsById = new Map((s0.data ?? []).map((x: any) => [x.id, x as Squad]));
-    }
+let squadsById = new Map<number, Squad>();
+if (squadIds.length) {
+  const { data: sData, error: sErr } = await supabase.rpc("get_public_squads", { p_ids: squadIds });
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("get_public_squads result", {
+      squadIdsCount: squadIds.length,
+      sErr: sErr?.message ?? null,
+      rows: (sData ?? []).length,
+      sample: (sData ?? [])[0] ?? null,
+    });
+  }
+
+  if (!sErr) {
+    squadsById = new Map((sData ?? []).map((x: any) => [Number(x.id), { id: Number(x.id), name: x.name }]));
+  }
+}
 
     const creatorIds = Array.from(
       new Set(Array.from(bookingsById.values()).map((b) => b.created_by).filter(Boolean))
     );
 
-    if (creatorIds.length) {
-      const p0 = await supabase.from("profiles").select("id,full_name,role").in("id", creatorIds);
-      if (!p0.error) {
-        setProfilesById((prev) => {
-          const m = new Map(prev);
-          for (const p of (p0.data ?? []) as Profile[]) m.set(p.id, p);
-          return m;
-        });
+   if (creatorIds.length) {
+  const { data: pData, error: pErr } = await supabase.rpc("get_public_profiles", { p_ids: creatorIds });
+  if (process.env.NODE_ENV !== "production") {
+  console.log("get_public_profiles result", {
+    creatorIdsCount: creatorIds.length,
+    creatorIdsSample: creatorIds.slice(0, 3),
+    pErr: pErr?.message ?? null,
+    rows: (pData ?? []).length,
+    sample: (pData ?? [])[0] ?? null,
+  });
+}
+
+
+  if (!pErr) {
+    setProfilesById((prev) => {
+      const m = new Map(prev);
+
+      for (const p of (pData ?? []) as Array<{ id: string; full_name: string }>) {
+        m.set(p.id, { id: p.id, full_name: p.full_name, role: "" });
       }
-    }
+
+      return m;
+    });
+  }
+}
+
 
     const merged: BookingResRow[] = brData.map((r) => {
       const b = bookingsById.get(r.booking_id);

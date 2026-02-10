@@ -335,10 +335,12 @@ export default function PlannerPage() {
       .gte("start_at", dayStart)
       .lt("start_at", dayEnd);
 
-    console.log("BOOKING_RES FETCH", {
-      error: br0.error?.message,
-      count: (br0.data ?? []).length,
-    });
+if (process.env.NODE_ENV !== "production") {
+  console.log("BOOKING_RES FETCH", {
+    error: br0.error?.message,
+    count: (br0.data ?? []).length,
+  });
+}
 
     if (br0.error) return setRows([]);
 
@@ -427,13 +429,15 @@ export default function PlannerPage() {
       const roleLower = String(prof0.data?.role ?? auth.roleLower ?? "").toLowerCase();
       const isAdminNow = roleLower === "admin";
 
-      console.log("AUTH OK", {
-        userId: auth.user.id,
-        roleLower,
-        roleFromProfiles: prof0.data?.role ?? null,
-        roleFromEnsureAuth: auth.roleLower ?? null,
-        squadIdFromProfile: (prof0.data as any)?.squad_id ?? null,
-      });
+if (process.env.NODE_ENV !== "production") {
+  console.log("AUTH OK", {
+    userId: auth.user.id,
+    roleLower,
+    roleFromProfiles: prof0.data?.role ?? null,
+    roleFromEnsureAuth: auth.roleLower ?? null,
+    squadIdFromProfile: (prof0.data as any)?.squad_id ?? null,
+  });
+}
 
       setMe({ id: auth.user.id });
       setIsAdmin(isAdminNow);
@@ -464,10 +468,10 @@ export default function PlannerPage() {
         }
       } else {
         // ✅ mister: usa la vista “my_managed_squads”
-        const s0 = await supabase
-          .from("my_managed_squads")
-          .select("squad_id:id,name")
-          .order("name", { ascending: true });
+const s0 = await supabase
+  .from("my_managed_squads")
+  .select("id,name")
+  .order("name", { ascending: true });
 
         if (s0.error) {
           console.error("my_managed_squads load error (mister)", s0.error);
@@ -481,7 +485,13 @@ export default function PlannerPage() {
         }
       }
 
-      console.log("SQUADS LOADED", { isAdminNow, count: squadsData.length, squadsData });
+if (process.env.NODE_ENV !== "production") {
+  console.log("SQUADS LOADED", {
+    isAdminNow,
+    count: squadsData.length,
+    squadsData,
+  });
+}
 
       setSquads(squadsData);
 
@@ -647,7 +657,14 @@ export default function PlannerPage() {
     setSubmitErr(null);
 
     if (!selectedResource) return setSubmitErr("Seleziona una risorsa.");
-    if (squadId === "") return setSubmitErr("Seleziona una squadra.");
+
+    const effectiveSquadId =
+  squadId === ""
+    ? (squads.length === 1 ? squads[0].id : null)
+    : Number(squadId);
+
+if (!effectiveSquadId) return setSubmitErr("Seleziona una squadra.");
+
 
     const daysToCreate: dayjs.Dayjs[] = [];
 
@@ -699,10 +716,11 @@ export default function PlannerPage() {
         const lockerStartIso = dayjs(startIso).subtract(lockerBeforeMin, "minute").toISOString();
         const lockerEndIso = dayjs(endIso).add(lockerAfterMin, "minute").toISOString();
 
+
         const { data: ins, error: insErr } = await supabase
           .from("bookings")
           .insert({
-            squad_id: Number(squadId),
+squad_id: effectiveSquadId,
             type: bookingType,
             status: "PROPOSED",
             kind: minibus ? "MINIBUS" : lockerOnly ? "LOCKER" : "FIELD",

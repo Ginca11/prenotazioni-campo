@@ -9,7 +9,7 @@ import type { CSSProperties } from "react";
 import dayjs from "dayjs";
 import { supabase } from "@/lib/supabaseClient";
 import { RESOURCE_ORDER } from "@/lib/resources";
-import { useSearchParams, useRouter } from "next/navigation"; // ✅ MOD: aggiunto useRouter
+import { useSearchParams, useRouter } from "next/navigation";
 
 import {
   colWidthFor,
@@ -110,7 +110,8 @@ function statusPillColors(status: string) {
   if (s === "CONFIRMED") return { bg: "#DCFCE7", border: "#14532D", text: "#14532D" };
   if (s === "PROPOSED") return { bg: "#FFEDD5", border: "#7C2D12", text: "#7C2D12" };
   if (s.includes("CHANGE")) return { bg: "#FFE4E6", border: "#7F1D1D", text: "#7F1D1D" };
-  if (s === "CANCELLED" || s === "CANCELED") return { bg: "#E5E7EB", border: "#111827", text: "#111827" };
+  if (s === "CANCELLED" || s === "CANCELED")
+    return { bg: "#E5E7EB", border: "#111827", text: "#111827" };
   return { bg: "#E0E7FF", border: "#1E3A8A", text: "#1E3A8A" };
 }
 
@@ -130,7 +131,6 @@ function colorForSquad(squadName: string) {
 }
 
 function parseDayFromQuery(raw: string | null) {
-  // accetta solo YYYY-MM-DD, evita ambiguità
   if (!raw) return null;
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(raw);
   if (!ok) return null;
@@ -139,9 +139,8 @@ function parseDayFromQuery(raw: string | null) {
   return d;
 }
 
-// ✅ MOD: start settimana (lunedì) per navigare alla weekly coerente
 function startOfWeekMonday(d: dayjs.Dayjs) {
-  const dow = d.day(); // 0=dom,1=lun,...6=sab
+  const dow = d.day();
   const diff = dow === 0 ? -6 : 1 - dow;
   return d.add(diff, "day").startOf("day");
 }
@@ -152,7 +151,7 @@ function startOfWeekMonday(d: dayjs.Dayjs) {
 
 export default function PlannerPage() {
   const searchParams = useSearchParams();
-  const router = useRouter(); // ✅ MOD
+  const router = useRouter();
 
   const [day, setDay] = useState(dayjs());
 
@@ -169,10 +168,8 @@ export default function PlannerPage() {
   // responsive
   const [isMobile, setIsMobile] = useState(false);
 
-  // IMPORTANT: inizializza la data dal query param ?date=YYYY-MM-DD (es. da weekly)
   const didInitFromQueryRef = useRef(false);
   useEffect(() => {
-    // Esegue una sola volta (prima inizializzazione) per evitare loop
     if (didInitFromQueryRef.current) return;
     didInitFromQueryRef.current = true;
 
@@ -239,10 +236,17 @@ export default function PlannerPage() {
   const headerPad = isMobile ? 6 : 8;
   const baseFont = isMobile ? 13 : 13;
 
-  /* =======================
-     HIGH CONTRAST TOKENS
-  ======================= */
+  const squadsIdSet = useMemo(() => new Set(squads.map((s) => s.id)), [squads]);
 
+  function getStableSquadId(prev: number | "", nextSquads: Squad[]) {
+    // Regola forte: se ho una sola squadra, deve essere quella (mister tipico)
+    if (nextSquads.length === 1) return nextSquads[0].id;
+
+    // Altrimenti: mantieni se valida, altrimenti vuoto
+    if (prev === "") return "";
+    const exists = nextSquads.some((s) => s.id === prev);
+    return exists ? prev : "";
+  }
 
   /* =======================
      TIME HELPERS
@@ -336,7 +340,7 @@ export default function PlannerPage() {
       count: (br0.data ?? []).length,
     });
 
-    if (br0.error) throw br0.error;
+    if (br0.error) return setRows([]);
 
     const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
       booking_id: x.booking_id,
@@ -355,7 +359,7 @@ export default function PlannerPage() {
         .select("id,status,type,notes,squad_id,created_by,series_id")
         .in("id", bookingIds);
 
-      if (b0.error) throw b0.error;
+      if (b0.error) return setRows([]);
       bookingsById = new Map((b0.data ?? []).map((b: any) => [b.id, b as BookingRow]));
     }
 
@@ -366,8 +370,7 @@ export default function PlannerPage() {
     let squadsById = new Map<number, Squad>();
     if (squadIds.length) {
       const s0 = await supabase.from("squads").select("id,name").in("id", squadIds);
-      if (s0.error) throw s0.error;
-      squadsById = new Map((s0.data ?? []).map((x: any) => [x.id, x as Squad]));
+      if (!s0.error) squadsById = new Map((s0.data ?? []).map((x: any) => [x.id, x as Squad]));
     }
 
     const creatorIds = Array.from(
@@ -376,13 +379,13 @@ export default function PlannerPage() {
 
     if (creatorIds.length) {
       const p0 = await supabase.from("profiles").select("id,full_name,role").in("id", creatorIds);
-      if (p0.error) throw p0.error;
-
-      setProfilesById((prev) => {
-        const m = new Map(prev);
-        for (const p of (p0.data ?? []) as Profile[]) m.set(p.id, p);
-        return m;
-      });
+      if (!p0.error) {
+        setProfilesById((prev) => {
+          const m = new Map(prev);
+          for (const p of (p0.data ?? []) as Profile[]) m.set(p.id, p);
+          return m;
+        });
+      }
     }
 
     const merged: BookingResRow[] = brData.map((r) => {
@@ -409,58 +412,90 @@ export default function PlannerPage() {
 
   async function load() {
     setLoading(true);
+    setSubmitErr(null);
+
     try {
       const auth = await ensureAuth();
-      console.log("AUTH OK", { userId: auth.user.id, roleLower: auth.roleLower });
+
+      // 🔥 fonte di verità: profiles.role (+ profilo serve anche per squad_id)
+      const prof0 = await supabase
+        .from("profiles")
+        .select("role,squad_id")
+        .eq("id", auth.user.id)
+        .single();
+
+      const roleLower = String(prof0.data?.role ?? auth.roleLower ?? "").toLowerCase();
+      const isAdminNow = roleLower === "admin";
+
+      console.log("AUTH OK", {
+        userId: auth.user.id,
+        roleLower,
+        roleFromProfiles: prof0.data?.role ?? null,
+        roleFromEnsureAuth: auth.roleLower ?? null,
+        squadIdFromProfile: (prof0.data as any)?.squad_id ?? null,
+      });
 
       setMe({ id: auth.user.id });
-      const isAdminNow = auth.roleLower === "admin";
       setIsAdmin(isAdminNow);
 
+      // resources
       const r = await supabase.from("resources").select("id,name,type").order("id");
-      if (r.error) throw r.error;
-
-      const all = (r.data ?? []) as Resource[];
-
-      const ordered = RESOURCE_ORDER.map((n) => all.find((x) => x.name === n)).filter(Boolean) as Resource[];
-
-      const inOrder = new Set(ordered.map((x) => x.id));
-      const tail = all.filter((x) => !inOrder.has(x.id));
-      setResources([...ordered, ...tail]);
-
-      const squadsFrom = isAdminNow ? "squads" : "my_managed_squads";
-
-      let squadsRaw: any[] | null = null;
-      let squadsErr: any = null;
-
-      {
-        const res = await supabase.from(squadsFrom).select("id,name").order("name", { ascending: true });
-        squadsRaw = res.data as any[] | null;
-        squadsErr = res.error;
+      if (r.error) {
+        console.error("resources load error", r.error);
+        setResources([]);
+      } else {
+        const all = (r.data ?? []) as Resource[];
+        const ordered = RESOURCE_ORDER.map((n) => all.find((x) => x.name === n)).filter(Boolean) as Resource[];
+        const inOrder = new Set(ordered.map((x) => x.id));
+        const tail = all.filter((x) => !inOrder.has(x.id));
+        setResources([...ordered, ...tail]);
       }
 
-      if (squadsErr) {
-        const msg = (squadsErr.message ?? "").toLowerCase();
-        const sortMissing = msg.includes("sort_order") && (msg.includes("does not exist") || msg.includes("column"));
-        if (sortMissing) {
-          const res2 = await supabase.from(squadsFrom).select("id,name").order("name", { ascending: true });
-          squadsRaw = res2.data as any[] | null;
-          squadsErr = res2.error;
+      // squads
+      let squadsData: Squad[] = [];
+
+      if (isAdminNow) {
+        const s0 = await supabase.from("squads").select("id,name").order("name", { ascending: true });
+        if (s0.error) {
+          console.error("squads load error (admin)", s0.error);
+          squadsData = [];
+        } else {
+          squadsData = (s0.data ?? []) as Squad[];
+        }
+      } else {
+        // ✅ mister: usa la vista “my_managed_squads”
+        const s0 = await supabase
+          .from("my_managed_squads")
+          .select("squad_id:id,name")
+          .order("name", { ascending: true });
+
+        if (s0.error) {
+          console.error("my_managed_squads load error (mister)", s0.error);
+          squadsData = [];
+          setSubmitErr("Non riesco a caricare le squadre gestite (permessi/RLS).");
+        } else {
+          squadsData = (s0.data ?? []) as Squad[];
+          if (squadsData.length === 0) {
+            setSubmitErr("Non hai squadre assegnate (my_managed_squads è vuota).");
+          }
         }
       }
 
-      if (squadsErr) throw squadsErr;
+      console.log("SQUADS LOADED", { isAdminNow, count: squadsData.length, squadsData });
 
-      const squadsData = (squadsRaw ?? []) as Squad[];
       setSquads(squadsData);
 
-      if (squadsData.length === 1) {
-        setSquadId(squadsData[0].id);
-      }
+      // ✅ Stabilizza squadra: se 1 sola => sempre selezionata; se più => mantieni se valida
+      setSquadId((prev) => getStableSquadId(prev, squadsData));
 
       await loadBookingsForDay();
-    } catch (e) {
-      console.error("load() error:", e);
+    } catch (e: any) {
+      // fallback: non blocchiamo tutta la UI
+      console.error("load() fatal error:", e);
+      setResources([]);
+      setSquads([]);
+      setRows([]);
+      setSubmitErr("Errore caricamento dati.");
     } finally {
       setLoading(false);
     }
@@ -471,6 +506,22 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day]);
 
+  // ✅ Se cambia la lista squads mentre un modal è aperto, mantieni selezione stabile (no reset a "")
+  useEffect(() => {
+    if (!openCreate && !openDetails) return;
+
+    setSquadId((prev) => {
+      // se 1 squadra -> forza
+      if (squads.length === 1) return squads[0].id;
+
+      // se già selezionata ma non esiste più -> svuota
+      if (prev !== "" && !squadsIdSet.has(prev)) return "";
+
+      // altrimenti lascia com'è
+      return prev;
+    });
+  }, [squads, squadsIdSet, openCreate, openDetails]);
+
   /* =======================
      MODAL / FORM HELPERS
   ======================= */
@@ -480,7 +531,9 @@ export default function PlannerPage() {
     setSelectedResource(res);
     setSelectedSlot(slotHHMM);
 
-    setSquadId(squads.length === 1 ? squads[0].id : "");
+    // ✅ NON resettare a "" (race condition). Scegli un valore stabile adesso.
+    setSquadId((prev) => getStableSquadId(prev, squads));
+
     setBookingType(isLocker(res) ? "MAINTENANCE" : "TRAINING");
 
     const st = clampToStep(slotHHMM);
@@ -510,6 +563,10 @@ export default function PlannerPage() {
   function openCreateModal(res: Resource, slotHHMM: string) {
     setActiveBookingId(null);
     setActiveBookingOwner("");
+
+    // ✅ se apro il create e ho 1 squadra, pre-selezionala subito
+    setSquadId((prev) => getStableSquadId(prev, squads));
+
     resetFormForSlot(res, slotHHMM);
     setOpenDetails(false);
     setOpenCreate(true);
@@ -539,7 +596,8 @@ export default function PlannerPage() {
     const b = brs[0]?.booking ?? null;
 
     const fieldRow =
-      brs.find((x) => pickResource(x)?.name === "Campo A") || brs.find((x) => pickResource(x)?.name === "Campo B");
+      brs.find((x) => pickResource(x)?.name === "Campo A") ||
+      brs.find((x) => pickResource(x)?.name === "Campo B");
 
     const resRow = fieldRow ?? brs[0];
     const res = resources.find((r) => r.id === resRow.resource_id) ?? null;
@@ -547,6 +605,7 @@ export default function PlannerPage() {
     setSelectedResource(res);
     setSelectedSlot(dayjs(resRow.start_at).format("HH:mm"));
 
+    // ✅ dettagli: usa la squadra della booking se presente
     setSquadId(b?.squad_id ?? "");
     setBookingType((b?.type as BookingType) ?? "TRAINING");
     setNotes(b?.notes ?? "");
@@ -611,7 +670,8 @@ export default function PlannerPage() {
     try {
       if (mode === "update") {
         if (!activeBookingId) throw new Error("Booking non selezionata.");
-        if (!canEditOrDelete(activeBookingOwner)) throw new Error("Non hai permessi per modificare questa prenotazione.");
+        if (!canEditOrDelete(activeBookingOwner))
+          throw new Error("Non hai permessi per modificare questa prenotazione.");
 
         const del = await supabase.rpc("delete_booking", { p_booking_id: activeBookingId });
         if (del.error) throw del.error;
@@ -633,7 +693,8 @@ export default function PlannerPage() {
 
         const chosenLockerIds: number[] = [];
         if (locker1Id !== "NONE") chosenLockerIds.push(Number(locker1Id));
-        if (locker2Id !== "NONE" && Number(locker2Id) !== Number(locker1Id)) chosenLockerIds.push(Number(locker2Id));
+        if (locker2Id !== "NONE" && Number(locker2Id) !== Number(locker1Id))
+          chosenLockerIds.push(Number(locker2Id));
 
         const lockerStartIso = dayjs(startIso).subtract(lockerBeforeMin, "minute").toISOString();
         const lockerEndIso = dayjs(endIso).add(lockerAfterMin, "minute").toISOString();
@@ -688,14 +749,34 @@ export default function PlannerPage() {
           } else {
             if (rpcMode === "A") {
               if (!fieldAId) throw new Error("Campo A non trovato.");
-              rowsToInsert.push({ booking_id: newBookingId, resource_id: fieldAId, start_at: startIso, end_at: endIso });
+              rowsToInsert.push({
+                booking_id: newBookingId,
+                resource_id: fieldAId,
+                start_at: startIso,
+                end_at: endIso,
+              });
             } else if (rpcMode === "B") {
               if (!fieldBId) throw new Error("Campo B non trovato.");
-              rowsToInsert.push({ booking_id: newBookingId, resource_id: fieldBId, start_at: startIso, end_at: endIso });
+              rowsToInsert.push({
+                booking_id: newBookingId,
+                resource_id: fieldBId,
+                start_at: startIso,
+                end_at: endIso,
+              });
             } else {
               if (!fieldAId || !fieldBId) throw new Error("Campo A/B non trovati.");
-              rowsToInsert.push({ booking_id: newBookingId, resource_id: fieldAId, start_at: startIso, end_at: endIso });
-              rowsToInsert.push({ booking_id: newBookingId, resource_id: fieldBId, start_at: startIso, end_at: endIso });
+              rowsToInsert.push({
+                booking_id: newBookingId,
+                resource_id: fieldAId,
+                start_at: startIso,
+                end_at: endIso,
+              });
+              rowsToInsert.push({
+                booking_id: newBookingId,
+                resource_id: fieldBId,
+                start_at: startIso,
+                end_at: endIso,
+              });
             }
           }
 
@@ -745,7 +826,6 @@ export default function PlannerPage() {
     window.location.href = "/login";
   }
 
-  // ✅ MOD: handler navigazione alla weekly coerente con il giorno selezionato
   function goToWeekly() {
     const weekStart = startOfWeekMonday(day).format("YYYY-MM-DD");
     router.push(`/weekly?week=${weekStart}`);
@@ -886,8 +966,6 @@ export default function PlannerPage() {
     opacity: 1,
   };
 
-
-
   const timeValueBox: CSSProperties = {
     border: `2px solid ${C.inputBorder}`,
     borderRadius: 14,
@@ -978,8 +1056,11 @@ export default function PlannerPage() {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {/* ✅ MOD: pulsante Daily → Weekly */}
-          <button style={btnStyleGhost} onClick={goToWeekly} title="Vai al planner settimanale (settimana corrente del giorno selezionato)">
+          <button
+            style={btnStyleGhost}
+            onClick={goToWeekly}
+            title="Vai al planner settimanale (settimana corrente del giorno selezionato)"
+          >
             Settimana
           </button>
 
@@ -998,12 +1079,10 @@ export default function PlannerPage() {
         </div>
       </div>
 
-      {/* PLANNER */}
       {loading ? (
         <div style={{ fontWeight: 900, color: C.text }}>Caricamento…</div>
       ) : (
         <div style={{ border: "2px solid #111827", borderRadius: 14, overflow: "auto" }}>
-          {/* HEADER COLONNE (sticky top) */}
           <div
             style={{
               display: "flex",
@@ -1014,7 +1093,6 @@ export default function PlannerPage() {
               borderBottom: "2px solid #111827",
             }}
           >
-            {/* ORA header sticky left */}
             <div
               style={{
                 width: timeColWidth,
@@ -1038,9 +1116,7 @@ export default function PlannerPage() {
             ))}
           </div>
 
-          {/* BODY */}
           <div style={{ display: "flex", minWidth: minWidthTotal }}>
-            {/* COLONNA ORARI (sticky left) */}
             <div
               style={{
                 width: timeColWidth,
@@ -1071,7 +1147,6 @@ export default function PlannerPage() {
               ))}
             </div>
 
-            {/* COLONNE RISORSE */}
             {resources.map((res) => {
               const blocks = blocksByAnchor.get(res.id) ?? [];
               const w = colWidthFor(res, fieldColWidth);
@@ -1096,12 +1171,10 @@ export default function PlannerPage() {
                     }
                   }}
                 >
-                  {/* GRIGLIA */}
                   {slots.map((_, i) => (
                     <div key={i} style={{ height: rowHeight, borderBottom: `1px solid ${gridLine}` }} />
                   ))}
 
-                  {/* BLOCCHI */}
                   {blocks.map((b) => {
                     const { top, height } = spanSlots(b.start_at, b.end_at);
                     const blockBg = colorForSquad(b.squad_name);
@@ -1257,7 +1330,11 @@ export default function PlannerPage() {
 
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span style={labelStyle}>Tipo</span>
-                <select style={inputStyle} value={bookingType} onChange={(e) => setBookingType(e.target.value as BookingType)}>
+                <select
+                  style={inputStyle}
+                  value={bookingType}
+                  onChange={(e) => setBookingType(e.target.value as BookingType)}
+                >
                   <option value="TRAINING">Allenamento</option>
                   <option value="MATCH">Partita</option>
                   <option value="MAINTENANCE">Manutenzione</option>
@@ -1294,10 +1371,17 @@ export default function PlannerPage() {
                 <div style={hintStyle}>La fine viene auto-corretta se scende sotto l’inizio</div>
               </div>
 
-              {!selectedResource || isLocker(selectedResource) || isMinibus(selectedResource) || isMiniField(selectedResource) ? null : (
+              {!selectedResource ||
+              isLocker(selectedResource) ||
+              isMinibus(selectedResource) ||
+              isMiniField(selectedResource) ? null : (
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={labelStyle}>Campo</span>
-                  <select style={inputStyle} value={fieldModeUI} onChange={(e) => setFieldModeUI(e.target.value as FieldModeUI)}>
+                  <select
+                    style={inputStyle}
+                    value={fieldModeUI}
+                    onChange={(e) => setFieldModeUI(e.target.value as FieldModeUI)}
+                  >
                     <option value="FULL">Intero (A+B)</option>
                     <option value="HALF_A">Metà A</option>
                     <option value="HALF_B">Metà B</option>
@@ -1382,7 +1466,12 @@ export default function PlannerPage() {
                   {isRecurring && (
                     <label style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 900, color: C.text }}>
                       fino al:
-                      <input style={inputStyle} type="date" value={recurringUntil} onChange={(e) => setRecurringUntil(e.target.value)} />
+                      <input
+                        style={inputStyle}
+                        type="date"
+                        value={recurringUntil}
+                        onChange={(e) => setRecurringUntil(e.target.value)}
+                      />
                     </label>
                   )}
                 </div>

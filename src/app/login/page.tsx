@@ -45,15 +45,42 @@ export default function LoginPage() {
     setMsg(null);
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+    const cleanEmail = email.trim();
+
+    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
       password,
     });
 
+    // ✅ LOG DI DEBUG (browser console)
+    console.log("LOGIN email:", cleanEmail);
+    console.log("LOGIN error:", loginError);
+    console.log("LOGIN user id:", loginData?.user?.id);
+    console.log("LOGIN session present:", !!loginData?.session);
+
+    // Se login OK, leggiamo anche il profilo
+    if (!loginError && loginData?.user?.id) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, role, squad_id")
+        .eq("id", loginData.user.id)
+        .single();
+
+      console.log("PROFILE error:", profileError);
+      console.log("PROFILE:", profile);
+
+      // Messaggio “soft” se manca il profilo (utile per capire subito)
+      if (profileError || !profile) {
+        setMsg("Login OK, ma profilo non trovato/leggibile (controlla tabella profiles e RLS).");
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(false);
 
-    if (error) {
-      setMsg(error.message);
+    if (loginError) {
+      setMsg(loginError.message);
       return;
     }
 
@@ -132,12 +159,7 @@ export default function LoginPage() {
             {loading ? "Accesso…" : "Entra"}
           </button>
 
-          <button
-            style={btnGhost}
-            type="button"
-            disabled={loading || !email.trim()}
-            onClick={forgotPassword}
-          >
+          <button style={btnGhost} type="button" disabled={loading || !email.trim()} onClick={forgotPassword}>
             Password dimenticata
           </button>
 

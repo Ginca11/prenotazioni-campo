@@ -7,24 +7,60 @@ export class EnsureAuthError extends Error {
   }
 }
 
+function redirectToLogin() {
+  if (typeof window !== "undefined") {
+    // evita loop se sei già su /login
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+  }
+}
+
 export async function ensureAuth(timeoutMs = 3500) {
   // 1) prova subito: se la sessione è già disponibile, non aspettare eventi
   const { data: s1, error: e1 } = await supabase.auth.getSession();
-  if (e1) throw e1;
-  if (s1.session) return s1.session;
+
+  if (e1) {
+    redirectToLogin();
+    throw e1;
+  }
+
+  if (s1.session?.user) return s1.session;
 
   // 2) altrimenti aspetta un auth change (login/refresh)
   return await new Promise((resolve, reject) => {
-    const t = setTimeout(() => {
+    let settled = false;
+
+    const finishReject = (err: Error) => {
+      if (settled) return;
+      settled = true;
       sub?.unsubscribe?.();
-      reject(new EnsureAuthError(`Nessuna sessione ricevuta entro ${timeoutMs}ms`));
+      redirectToLogin();
+      reject(err);
+    };
+
+    const finishResolve = (session: any) => {
+      if (settled) return;
+      settled = true;
+      sub?.unsubscribe?.();
+      resolve(session);
+    };
+
+    const t = setTimeout(() => {
+      finishReject(new EnsureAuthError(`Nessuna sessione ricevuta entro ${timeoutMs}ms`));
     }, timeoutMs);
 
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      // se esci o fallisce il refresh → login
+      if (event === "SIGNED_OUT" || event === "TOKEN_REFRESH_FAILED") {
         clearTimeout(t);
-        data.subscription.unsubscribe();
-        resolve(session);
+        finishReject(new EnsureAuthError(`Evento auth: ${event}`));
+        return;
+      }
+
+      if (session?.user) {
+        clearTimeout(t);
+        finishResolve(session);
       }
     });
 

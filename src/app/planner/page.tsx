@@ -374,23 +374,29 @@ const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
     );
 
 let squadsById = new Map<number, Squad>();
+
 if (squadIds.length) {
-  
-  
   const { data: sData, error: sErr } = await supabase.rpc("get_public_squads", { p_ids: squadIds });
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("get_public_squads result", {
-      squadIdsCount: squadIds.length,
-      sErr: sErr?.message ?? null,
-      rows: (sData ?? []).length,
-      sample: (sData ?? [])[0] ?? null,
-    });
+  // ✅ log errori anche in produzione (solo in caso di errore)
+  if (sErr) {
+    console.error("get_public_squads RPC error:", sErr.message);
   }
 
   if (!sErr) {
-    squadsById = new Map((sData ?? []).map((x: any) => [Number(x.id), { id: Number(x.id), name: x.name }]));
+    squadsById = new Map(
+      (sData ?? []).map((x: any) => [Number(x.id), { id: Number(x.id), name: x.name }])
+    );
   }
+}
+
+/**
+ * ✅ FALLBACK robusto:
+ * se la RPC non restituisce nulla (tipico su prod/RLS), usa le squads già caricate in pagina.
+ * (per mister = my_managed_squads, per admin = squads)
+ */
+if (squadsById.size === 0 && squads.length) {
+  squadsById = new Map(squads.map((s) => [Number(s.id), { id: Number(s.id), name: s.name }]));
 }
 
     const creatorIds = Array.from(

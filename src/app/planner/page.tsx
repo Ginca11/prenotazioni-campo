@@ -44,6 +44,9 @@ type BookingRow = {
   squad_id: number;
   created_by: string;
   series_id?: string | null;
+  created_at?: string | null;
+created_by_email?: string | null;
+
 };
 
 type BookingResRow = {
@@ -77,6 +80,9 @@ type RenderBlock = {
   created_by: string;
   is_minibus: boolean;
   notes: string | null;
+    created_at?: string | null;
+  created_by_email?: string | null;
+  
 };
 
 /* =======================
@@ -358,7 +364,7 @@ if (process.env.NODE_ENV !== "production") {
     if (bookingIds.length) {
       const b0 = await supabase
         .from("bookings")
-        .select("id,status,type,notes,squad_id,created_by,series_id")
+.select("id,status,type,notes,squad_id,created_by,series_id,created_at,created_by_email")
         .in("id", bookingIds);
 
       if (b0.error) return setRows([]);
@@ -420,11 +426,17 @@ if (squadIds.length) {
 
     const merged: BookingResRow[] = brData.map((r) => {
       const b = bookingsById.get(r.booking_id);
+//      console.log("DEBUG META", b);
+
       const sq = b ? squadsById.get(b.squad_id) : undefined;
 
       return {
         ...r,
-        booking: b
+        booking: b,
+        created_at: b?.created_at ?? null,
+created_by_email: b?.created_by_email ?? null
+
+        
           ? ({
               ...b,
               squad: sq ? { id: sq.id, name: sq.name } : null,
@@ -910,7 +922,9 @@ squad_id: effectiveSquadId,
         const rt = rr?.type ?? "";
         return rt === "MINIBUS" || rn.includes("pulmino");
       });
-
+      
+const bMeta = brs[0] as any;
+      
       if (hasA && hasB && fieldAId && fieldBId) {
         const startAt = brs
           .filter((x) => x.resource_id === fieldAId || x.resource_id === fieldBId)
@@ -936,6 +950,12 @@ squad_id: effectiveSquadId,
           created_by: createdBy,
           is_minibus: isMin,
           notes: blockNotes,
+created_at: bMeta?.created_at ?? null,
+created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_by_email ?? null),
+
+
+          created_at: bRow?.created_at ?? null,
+created_by_email: bRow?.created_by_email ?? null,
         });
       }
 
@@ -955,6 +975,9 @@ squad_id: effectiveSquadId,
           created_by: createdBy,
           is_minibus: isMin,
           notes: blockNotes,
+          created_at: bMeta?.created_at ?? null,
+created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_by_email ?? null),
+
         });
       }
     }
@@ -1275,7 +1298,32 @@ squad_id: effectiveSquadId,
                         </div>
                         <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900, color: "#111827" }}>
                           {b.booking_type} · {b.coach_name}
+                          
                         </div>
+
+{b?.created_at && (
+  <div className="mt-2 text-[11px] text-slate-400 font-medium">
+    {new Intl.DateTimeFormat("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+    }).format(new Date(b.created_at))}
+
+    {" · "}
+
+    {new Intl.DateTimeFormat("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(b.created_at))}
+
+{b.created_by_email ? (
+  <>
+    {" · "}
+    {String(b.created_by_email).split("@")[0]}
+  </>
+) : null}
+  </div>
+)}
+
                         {b.notes && (
                           <div
                             title={b.notes}

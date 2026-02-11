@@ -65,10 +65,10 @@ export function colWidthFor(
   r: { type: string; name: string },
   fieldColWidth?: number
 ) {
-const SCALE = 1.15; // riduzione planner del 10%
-const base = Math.round(
-  (Number.isFinite(fieldColWidth) ? fieldColWidth : 320) * SCALE
-);
+  const SCALE = 1.15; // riduzione planner del 10%
+  const base = Math.round(
+    (Number.isFinite(fieldColWidth) ? fieldColWidth : 320) * SCALE
+  );
 
   if (r.name === "SALA") return Math.round(base * 0.25);
   if (r.type === "LOCKER") return Math.round(base * 0.4);
@@ -185,39 +185,110 @@ export function columnHeaderStyle(
 }
 
 /* =======================
-   Booking / Reservation colors (NEW)
-   - Centralized palette for "a colpo d'occhio"
+   Booking / Reservation colors (UPDATED)
+   - Same category => same color (robust)
 ======================= */
 
 export const bookingCategoryColors = {
-  TRAINING: "#2563EB", // blu
-  MATCH: "#DC2626", // rosso
-  TOURNAMENT: "#7C3AED", // viola
-  YOUTH: "#16A34A", // verde
-  SERVICES: "#D97706", // ambra
-  OTHER: "#334155", // slate
+  // Settori / squadre (esempio)
+  PULCINI: "#F9EB4D",
+  PRIMI_CALCI: "#FBBF24",
+  ESORDIENTI: "#60A5FA",
+  GIOVANISSIMI: "#0C1EAC",
+  ALLIEVI: "#7C3AED",
+  JUNIORES: "#DC2626",
+  SENIOR: "#16A34A",
+
+  // Tipologie generiche
+  TRAINING: "#60A5FA",
+  MATCH: "#DC2626",
+  TOURNAMENT: "#7C3AED",
+  YOUTH: "#FBBF24",
+  SERVICES: "#D97706",
+  OTHER: "#334155",
 } as const;
 
 export type BookingCategoryColorKey = keyof typeof bookingCategoryColors;
 
-/**
- * Returns a strong border + readable text, given a category base color.
- * Does not assume any specific booking type shape: caller passes a key.
- */
-export function bookingStyleFromCategory(
-  category: BookingCategoryColorKey
-): CSSProperties {
-  const base = bookingCategoryColors[category];
-  const border = darkenHex(base, 0.18);
+/** Normalizza stringhe tipo "Pulcini 2016", "pulcini", "Pulcini (A)" -> "PULCINI" quando possibile */
+function normalizeCategory(raw?: string | null): string {
+  const s = (raw ?? "")
+    .toString()
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // rimuove accenti
+    .replace(/[^A-Z0-9 ]+/g, " ") // toglie simboli
+    .replace(/\s+/g, " ")
+    .trim();
 
-  // Text on solid base color: pick white/near-black by luma
+  return s;
+}
+
+/** Mappa sinonimi/varianti comuni -> chiave canonica */
+function categoryToKey(raw?: string | null): BookingCategoryColorKey | null {
+  const s = normalizeCategory(raw);
+
+  // match diretti (già chiave)
+  if (s && (s as BookingCategoryColorKey) in bookingCategoryColors) {
+    return s as BookingCategoryColorKey;
+  }
+
+  // sinonimi / contains
+  const has = (needle: string) => s.includes(needle);
+
+  if (has("PULCIN")) return "PULCINI";
+  if (has("PRIMI CALCI") || has("PRIMI") || has("CALCI")) return "PRIMI_CALCI";
+  if (has("ESORD")) return "ESORDIENTI";
+  if (has("GIOVAN")) return "GIOVANISSIMI";
+  if (has("ALLIEV")) return "ALLIEVI";
+  if (has("JUNIOR") || has("JUNIORES")) return "JUNIORES";
+  if (has("SENIOR") || has("PRIMA SQUADRA")) return "SENIOR";
+
+  if (has("TRAIN") || has("ALLEN")) return "TRAINING";
+  if (has("MATCH") || has("PARTITA") || has("GARA")) return "MATCH";
+  if (has("TORNE") || has("EVENT")) return "TOURNAMENT";
+  if (has("YOUTH") || has("GIOVANI") || has("SCUOLA")) return "YOUTH";
+  if (has("SERVIZ") || has("SALA") || has("MINIBUS") || has("SPOGL")) return "SERVICES";
+
+  return null;
+}
+
+/** Fallback deterministico: stessa stringa -> stesso colore, anche se non mappata */
+function stableColorFromString(raw?: string | null): string {
+  const s = normalizeCategory(raw) || "OTHER";
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+
+  const palette = Object.values(bookingCategoryColors);
+  return palette[h % palette.length];
+}
+
+/**
+ * Usa questa funzione passando la categoria "raw" che hai nel booking.
+ * Se è Pulcini (anche con anno/varianti) -> sempre stesso colore.
+ */
+export function bookingStyleFromAnyCategory(rawCategory?: string | null): CSSProperties {
+  const key = categoryToKey(rawCategory);
+  const base = key ? bookingCategoryColors[key] : stableColorFromString(rawCategory);
+  const border = darkenHex(base, 0.22);
+
   const rgb = hexToRgb(base);
-  const textColor = rgb && yiqLuma(rgb) >= 165 ? "#0B1220" : "#FFFFFF";
+  const textColor = rgb && yiqLuma(rgb) >= 175 ? "#0B1220" : "#FFFFFF";
 
   return {
     background: base,
     color: textColor,
-    border: `3px solid ${border}`, // <-- bordo più marcato
+    border: `3px solid ${border}`,
     boxShadow: "0 0 0 1px rgba(0,0,0,0.25), 0 6px 16px rgba(0,0,0,0.20)",
   };
 }
+/** Mantengo la vecchia API: accetta sia key canonica che stringa "raw" */
+export function bookingStyleFromCategory(
+  category: BookingCategoryColorKey
+): CSSProperties;
+export function bookingStyleFromCategory(category: string | null | undefined): CSSProperties;
+export function bookingStyleFromCategory(category: any): CSSProperties {
+  return bookingStyleFromAnyCategory(category);
+}
+

@@ -10,6 +10,7 @@ import dayjs from "dayjs";
 import { supabase } from "@/lib/supabaseClient";
 import { RESOURCE_ORDER } from "@/lib/resources";
 import { useSearchParams, useRouter } from "next/navigation";
+import { bookingStyleFromCategory } from "@/features/planner/plannerUi";
 
 import {
   colWidthFor,
@@ -55,16 +56,9 @@ type BookingResRow = {
   start_at: string;
   end_at: string;
   resources?: Resource | Resource[] | null;
-  booking?: {
-    id: number;
-    status: BookingStatus;
-    type: BookingType;
-    notes: string | null;
-    squad_id: number;
-    created_by: string;
-    series_id?: string | null;
-    squad?: { id: number; name: string } | null;
-  } | null;
+  booking?: (BookingRow & { squad?: { id: number; name: string } | null }) | null;
+  created_at?: string | null;
+  created_by_email?: string | null;
 };
 
 type RenderBlock = {
@@ -337,7 +331,7 @@ export default function PlannerPage() {
 
     const br0 = await supabase
       .from("booking_resources")
-      .select("booking_id,resource_id,start_at,end_at,resources(id,name,type)")
+.select("booking_id,resource_id,start_at,end_at,resources(id,name,type),bookings(id,squad_id,squads(id,name))")
       .gte("start_at", dayStart)
       .lt("start_at", dayEnd);
 
@@ -350,13 +344,17 @@ if (process.env.NODE_ENV !== "production") {
 
     if (br0.error) return setRows([]);
 
-    const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
-      booking_id: x.booking_id,
-      resource_id: x.resource_id,
-      start_at: x.start_at,
-      end_at: x.end_at,
-      resources: x.resources ?? null,
-    }));
+const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
+ 
+  booking_id: x.booking_id,
+  resource_id: x.resource_id,
+  start_at: x.start_at,
+  end_at: x.end_at,
+  resources: x.resources ?? null,
+
+  // ✅ QUESTO È IL FIX
+  booking: x.bookings ?? null,
+}));
 
     const bookingIds = Array.from(new Set(brData.map((x) => x.booking_id)));
 
@@ -377,6 +375,8 @@ if (process.env.NODE_ENV !== "production") {
 
 let squadsById = new Map<number, Squad>();
 if (squadIds.length) {
+  
+  
   const { data: sData, error: sErr } = await supabase.rpc("get_public_squads", { p_ids: squadIds });
 
   if (process.env.NODE_ENV !== "production") {
@@ -430,19 +430,17 @@ if (squadIds.length) {
 
       const sq = b ? squadsById.get(b.squad_id) : undefined;
 
-      return {
-        ...r,
-        booking: b,
-        created_at: b?.created_at ?? null,
-created_by_email: b?.created_by_email ?? null
-
-        
-          ? ({
-              ...b,
-              squad: sq ? { id: sq.id, name: sq.name } : null,
-            } as any)
-          : null,
-      };
+return {
+  ...r,
+  booking: b
+    ? ({
+        ...b,
+        squad: sq ? { id: sq.id, name: sq.name } : null,
+      } as any)
+    : null,
+  created_at: b?.created_at ?? null,
+  created_by_email: b?.created_by_email ?? null,
+};
     });
 
     setRows(merged);
@@ -905,7 +903,7 @@ squad_id: effectiveSquadId,
 
     for (const [bookingId, brs] of byBooking.entries()) {
       const b = brs[0]?.booking;
-      const squadName = b?.squad?.name ?? `#${bookingId}`;
+const squadName = b?.squad?.name ?? `#${bookingId}`;
       const type = b?.type ?? "TRAINING";
       const status = b?.status ?? "—";
       const createdBy = b?.created_by ?? "";
@@ -951,11 +949,8 @@ const bMeta = brs[0] as any;
           is_minibus: isMin,
           notes: blockNotes,
 created_at: bMeta?.created_at ?? null,
-created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_by_email ?? null),
+created_by_email: bMeta?.created_by_email ?? null,
 
-
-          created_at: bRow?.created_at ?? null,
-created_by_email: bRow?.created_by_email ?? null,
         });
       }
 
@@ -975,8 +970,9 @@ created_by_email: bRow?.created_by_email ?? null,
           created_by: createdBy,
           is_minibus: isMin,
           notes: blockNotes,
-          created_at: bMeta?.created_at ?? null,
-created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_by_email ?? null),
+created_at: bMeta?.created_at ?? null,
+created_by_email: bMeta?.created_by_email ?? null,
+
 
         });
       }
@@ -1054,7 +1050,6 @@ created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_b
     padding: "12px 16px",
     fontWeight: 1000,
     fontSize: 16,
-    border: "2px solid #111827",
     boxShadow: "0 6px 14px rgba(0,0,0,0.15)",
     cursor: "pointer",
     width: "100%",
@@ -1245,10 +1240,16 @@ created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_b
                   ))}
 
                   {blocks.map((b) => {
-                    const { top, height } = spanSlots(b.start_at, b.end_at);
-                    const blockBg = colorForSquad(b.squad_name);
-                    const pill = statusPillColors(b.status);
-                    const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
+         //      console.log("SQUAD_NAME VALUE:", b.squad_name);
+//console.log("CHECK squad_name:", b.squad_name);
+
+//console.log("BLOCK KEYS:", Object.keys(b));
+//console.log("BLOCK SAMPLE:", b);
+
+const { top, height } = spanSlots(b.start_at, b.end_at);
+const blockStyle = bookingStyleFromCategory(b.squad_name); // oppure b.booking_type
+const pill = statusPillColors(b.status);
+const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
 
                     return (
                       <div
@@ -1257,21 +1258,21 @@ created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_b
                           e.stopPropagation();
                           openDetailsModal(b);
                         }}
-                        style={{
-                          position: "absolute",
-                          left: 4,
-                          top,
-                          height,
-                          width: blockWidth,
-                          background: blockBg,
-                          border: "2px solid #111827",
-                          borderRadius: 12,
-                          padding: isMobile ? 6 : 6,
-                          fontSize: isMobile ? 12 : 12,
-                          boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
-                          overflow: "hidden",
-                          color: "#111827",
-                        }}
+style={{
+  position: "absolute",
+  left: 4,
+  top,
+  height,
+  width: blockWidth,
+
+  ...blockStyle, // ✅ QUI: applica background + border + color
+
+  borderRadius: 12,
+  padding: isMobile ? 6 : 6,
+  fontSize: isMobile ? 12 : 12,
+  boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
+  overflow: "hidden",
+}}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                           <b style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1296,7 +1297,7 @@ created_by_email: (bMeta?.created_by_email?.created_by_email ?? bMeta?.created_b
                         <div style={{ marginTop: 4, fontWeight: 900 }}>
                           {dayjs(b.start_at).format("HH:mm")}–{dayjs(b.end_at).format("HH:mm")}
                         </div>
-                        <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900, color: "#111827" }}>
+                        <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900,  }}>
                           {b.booking_type} · {b.coach_name}
                           
                         </div>

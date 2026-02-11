@@ -10,7 +10,7 @@ import dayjs from "dayjs";
 import { supabase } from "@/lib/supabaseClient";
 import { RESOURCE_ORDER } from "@/lib/resources";
 import { useSearchParams, useRouter } from "next/navigation";
-import { bookingStyleFromCategory } from "@/features/planner/plannerUi";
+import { bookingStyleFromCategory, bookingInteractiveStyle } from "@/features/planner/plannerUi";
 
 import {
   colWidthFor,
@@ -46,8 +46,7 @@ type BookingRow = {
   created_by: string;
   series_id?: string | null;
   created_at?: string | null;
-created_by_email?: string | null;
-
+  created_by_email?: string | null;
 };
 
 type BookingResRow = {
@@ -74,9 +73,8 @@ type RenderBlock = {
   created_by: string;
   is_minibus: boolean;
   notes: string | null;
-    created_at?: string | null;
+  created_at?: string | null;
   created_by_email?: string | null;
-  
 };
 
 /* =======================
@@ -192,6 +190,9 @@ export default function PlannerPage() {
   // modal
   const [openCreate, setOpenCreate] = useState(false);
   const [openDetails, setOpenDetails] = useState(false);
+
+  // ✅ hover (uniforme con weekly)
+  const [hoveredBlockKey, setHoveredBlockKey] = useState<string | null>(null);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string>("");
@@ -331,30 +332,22 @@ export default function PlannerPage() {
 
     const br0 = await supabase
       .from("booking_resources")
-.select("booking_id,resource_id,start_at,end_at,resources(id,name,type),bookings(id,squad_id,squads(id,name))")
+      .select("booking_id,resource_id,start_at,end_at,resources(id,name,type),bookings(id,squad_id,squads(id,name))")
       .gte("start_at", dayStart)
       .lt("start_at", dayEnd);
 
-if (process.env.NODE_ENV !== "production") {
-  console.log("BOOKING_RES FETCH", {
-    error: br0.error?.message,
-    count: (br0.data ?? []).length,
-  });
-}
-
     if (br0.error) return setRows([]);
 
-const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
- 
-  booking_id: x.booking_id,
-  resource_id: x.resource_id,
-  start_at: x.start_at,
-  end_at: x.end_at,
-  resources: x.resources ?? null,
+    const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
+      booking_id: x.booking_id,
+      resource_id: x.resource_id,
+      start_at: x.start_at,
+      end_at: x.end_at,
+      resources: x.resources ?? null,
 
-  // ✅ QUESTO È IL FIX
-  booking: x.bookings ?? null,
-}));
+      // ✅ QUESTO È IL FIX
+      booking: x.bookings ?? null,
+    }));
 
     const bookingIds = Array.from(new Set(brData.map((x) => x.booking_id)));
 
@@ -362,7 +355,7 @@ const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
     if (bookingIds.length) {
       const b0 = await supabase
         .from("bookings")
-.select("id,status,type,notes,squad_id,created_by,series_id,created_at,created_by_email")
+        .select("id,status,type,notes,squad_id,created_by,series_id,created_at,created_by_email")
         .in("id", bookingIds);
 
       if (b0.error) return setRows([]);
@@ -373,80 +366,67 @@ const brData: BookingResRow[] = (br0.data ?? []).map((x: any) => ({
       new Set(Array.from(bookingsById.values()).map((b) => b.squad_id).filter(Boolean))
     );
 
-let squadsById = new Map<number, Squad>();
+    let squadsById = new Map<number, Squad>();
 
-if (squadIds.length) {
-  const { data: sData, error: sErr } = await supabase.rpc("get_public_squads", { p_ids: squadIds });
+    if (squadIds.length) {
+      const { data: sData, error: sErr } = await supabase.rpc("get_public_squads", { p_ids: squadIds });
 
-  // ✅ log errori anche in produzione (solo in caso di errore)
-  if (sErr) {
-    console.error("get_public_squads RPC error:", sErr.message);
-  }
+      // ✅ log solo in caso di errore (rimane)
+      if (sErr) {
+        console.error("get_public_squads RPC error:", sErr.message);
+      }
 
-  if (!sErr) {
-    squadsById = new Map(
-      (sData ?? []).map((x: any) => [Number(x.id), { id: Number(x.id), name: x.name }])
-    );
-  }
-}
+      if (!sErr) {
+        squadsById = new Map(
+          (sData ?? []).map((x: any) => [Number(x.id), { id: Number(x.id), name: x.name }])
+        );
+      }
+    }
 
-/**
- * ✅ FALLBACK robusto:
- * se la RPC non restituisce nulla (tipico su prod/RLS), usa le squads già caricate in pagina.
- * (per mister = my_managed_squads, per admin = squads)
- */
-if (squadsById.size === 0 && squads.length) {
-  squadsById = new Map(squads.map((s) => [Number(s.id), { id: Number(s.id), name: s.name }]));
-}
+    /**
+     * ✅ FALLBACK robusto:
+     * se la RPC non restituisce nulla (tipico su prod/RLS), usa le squads già caricate in pagina.
+     * (per mister = my_managed_squads, per admin = squads)
+     */
+    if (squadsById.size === 0 && squads.length) {
+      squadsById = new Map(squads.map((s) => [Number(s.id), { id: Number(s.id), name: s.name }]));
+    }
 
     const creatorIds = Array.from(
       new Set(Array.from(bookingsById.values()).map((b) => b.created_by).filter(Boolean))
     );
 
-   if (creatorIds.length) {
-  const { data: pData, error: pErr } = await supabase.rpc("get_public_profiles", { p_ids: creatorIds });
-  if (process.env.NODE_ENV !== "production") {
-  console.log("get_public_profiles result", {
-    creatorIdsCount: creatorIds.length,
-    creatorIdsSample: creatorIds.slice(0, 3),
-    pErr: pErr?.message ?? null,
-    rows: (pData ?? []).length,
-    sample: (pData ?? [])[0] ?? null,
-  });
-}
+    if (creatorIds.length) {
+      const { data: pData, error: pErr } = await supabase.rpc("get_public_profiles", { p_ids: creatorIds });
 
+      if (!pErr) {
+        setProfilesById((prev) => {
+          const m = new Map(prev);
 
-  if (!pErr) {
-    setProfilesById((prev) => {
-      const m = new Map(prev);
+          for (const p of (pData ?? []) as Array<{ id: string; full_name: string }>) {
+            m.set(p.id, { id: p.id, full_name: p.full_name, role: "" });
+          }
 
-      for (const p of (pData ?? []) as Array<{ id: string; full_name: string }>) {
-        m.set(p.id, { id: p.id, full_name: p.full_name, role: "" });
+          return m;
+        });
       }
-
-      return m;
-    });
-  }
-}
-
+    }
 
     const merged: BookingResRow[] = brData.map((r) => {
       const b = bookingsById.get(r.booking_id);
-//      console.log("DEBUG META", b);
-
       const sq = b ? squadsById.get(b.squad_id) : undefined;
 
-return {
-  ...r,
-  booking: b
-    ? ({
-        ...b,
-        squad: sq ? { id: sq.id, name: sq.name } : null,
-      } as any)
-    : null,
-  created_at: b?.created_at ?? null,
-  created_by_email: b?.created_by_email ?? null,
-};
+      return {
+        ...r,
+        booking: b
+          ? ({
+              ...b,
+              squad: sq ? { id: sq.id, name: sq.name } : null,
+            } as any)
+          : null,
+        created_at: b?.created_at ?? null,
+        created_by_email: b?.created_by_email ?? null,
+      };
     });
 
     setRows(merged);
@@ -472,16 +452,6 @@ return {
 
       const roleLower = String(prof0.data?.role ?? auth.roleLower ?? "").toLowerCase();
       const isAdminNow = roleLower === "admin";
-
-if (process.env.NODE_ENV !== "production") {
-  console.log("AUTH OK", {
-    userId: auth.user.id,
-    roleLower,
-    roleFromProfiles: prof0.data?.role ?? null,
-    roleFromEnsureAuth: auth.roleLower ?? null,
-    squadIdFromProfile: (prof0.data as any)?.squad_id ?? null,
-  });
-}
 
       setMe({ id: auth.user.id });
       setIsAdmin(isAdminNow);
@@ -512,10 +482,10 @@ if (process.env.NODE_ENV !== "production") {
         }
       } else {
         // ✅ mister: usa la vista “my_managed_squads”
-const s0 = await supabase
-  .from("my_managed_squads")
-  .select("id,name")
-  .order("name", { ascending: true });
+        const s0 = await supabase
+          .from("my_managed_squads")
+          .select("id,name")
+          .order("name", { ascending: true });
 
         if (s0.error) {
           console.error("my_managed_squads load error (mister)", s0.error);
@@ -528,14 +498,6 @@ const s0 = await supabase
           }
         }
       }
-
-if (process.env.NODE_ENV !== "production") {
-  console.log("SQUADS LOADED", {
-    isAdminNow,
-    count: squadsData.length,
-    squadsData,
-  });
-}
 
       setSquads(squadsData);
 
@@ -703,12 +665,9 @@ if (process.env.NODE_ENV !== "production") {
     if (!selectedResource) return setSubmitErr("Seleziona una risorsa.");
 
     const effectiveSquadId =
-  squadId === ""
-    ? (squads.length === 1 ? squads[0].id : null)
-    : Number(squadId);
+      squadId === "" ? (squads.length === 1 ? squads[0].id : null) : Number(squadId);
 
-if (!effectiveSquadId) return setSubmitErr("Seleziona una squadra.");
-
+    if (!effectiveSquadId) return setSubmitErr("Seleziona una squadra.");
 
     const daysToCreate: dayjs.Dayjs[] = [];
 
@@ -760,11 +719,10 @@ if (!effectiveSquadId) return setSubmitErr("Seleziona una squadra.");
         const lockerStartIso = dayjs(startIso).subtract(lockerBeforeMin, "minute").toISOString();
         const lockerEndIso = dayjs(endIso).add(lockerAfterMin, "minute").toISOString();
 
-
         const { data: ins, error: insErr } = await supabase
           .from("bookings")
           .insert({
-squad_id: effectiveSquadId,
+            squad_id: effectiveSquadId,
             type: bookingType,
             status: "PROPOSED",
             kind: minibus ? "MINIBUS" : lockerOnly ? "LOCKER" : "FIELD",
@@ -909,7 +867,7 @@ squad_id: effectiveSquadId,
 
     for (const [bookingId, brs] of byBooking.entries()) {
       const b = brs[0]?.booking;
-const squadName = b?.squad?.name ?? `#${bookingId}`;
+      const squadName = b?.squad?.name ?? `#${bookingId}`;
       const type = b?.type ?? "TRAINING";
       const status = b?.status ?? "—";
       const createdBy = b?.created_by ?? "";
@@ -926,9 +884,9 @@ const squadName = b?.squad?.name ?? `#${bookingId}`;
         const rt = rr?.type ?? "";
         return rt === "MINIBUS" || rn.includes("pulmino");
       });
-      
-const bMeta = brs[0] as any;
-      
+
+      const bMeta = brs[0] as any;
+
       if (hasA && hasB && fieldAId && fieldBId) {
         const startAt = brs
           .filter((x) => x.resource_id === fieldAId || x.resource_id === fieldBId)
@@ -954,9 +912,8 @@ const bMeta = brs[0] as any;
           created_by: createdBy,
           is_minibus: isMin,
           notes: blockNotes,
-created_at: bMeta?.created_at ?? null,
-created_by_email: bMeta?.created_by_email ?? null,
-
+          created_at: bMeta?.created_at ?? null,
+          created_by_email: bMeta?.created_by_email ?? null,
         });
       }
 
@@ -976,10 +933,8 @@ created_by_email: bMeta?.created_by_email ?? null,
           created_by: createdBy,
           is_minibus: isMin,
           notes: blockNotes,
-created_at: bMeta?.created_at ?? null,
-created_by_email: bMeta?.created_by_email ?? null,
-
-
+          created_at: bMeta?.created_at ?? null,
+          created_by_email: bMeta?.created_by_email ?? null,
         });
       }
     }
@@ -1246,39 +1201,38 @@ created_by_email: bMeta?.created_by_email ?? null,
                   ))}
 
                   {blocks.map((b) => {
-         //      console.log("SQUAD_NAME VALUE:", b.squad_name);
-//console.log("CHECK squad_name:", b.squad_name);
+                    const { top, height } = spanSlots(b.start_at, b.end_at);
+                    const blockStyle = bookingStyleFromCategory(b.squad_name); // oppure b.booking_type
+                    const pill = statusPillColors(b.status);
+                    const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
 
-//console.log("BLOCK KEYS:", Object.keys(b));
-//console.log("BLOCK SAMPLE:", b);
-
-const { top, height } = spanSlots(b.start_at, b.end_at);
-const blockStyle = bookingStyleFromCategory(b.squad_name); // oppure b.booking_type
-const pill = statusPillColors(b.status);
-const blockWidth = b.span_cols === 2 && res.name === "Campo A" ? w + fieldBWidth - 8 : w - 8;
+                    const blockKey = `${b.booking_id}-${b.anchor_resource_id}-${b.start_at}`;
+                    const isHover = hoveredBlockKey === blockKey;
 
                     return (
                       <div
-                        key={`${b.booking_id}-${b.anchor_resource_id}-${b.start_at}`}
+                        key={blockKey}
+                        onMouseEnter={() => setHoveredBlockKey(blockKey)}
+                        onMouseLeave={() => setHoveredBlockKey(null)}
                         onClick={(e) => {
                           e.stopPropagation();
                           openDetailsModal(b);
                         }}
-style={{
-  position: "absolute",
-  left: 4,
-  top,
-  height,
-  width: blockWidth,
+                        style={{
+                          position: "absolute",
+                          left: 4,
+                          top,
+                          height,
+                          width: blockWidth,
 
-  ...blockStyle, // ✅ QUI: applica background + border + color
+                          ...blockStyle,
+                          ...bookingInteractiveStyle(isHover),
 
-  borderRadius: 12,
-  padding: isMobile ? 6 : 6,
-  fontSize: isMobile ? 12 : 12,
-  boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
-  overflow: "hidden",
-}}
+                          borderRadius: 12,
+                          padding: isMobile ? 6 : 6,
+                          fontSize: isMobile ? 12 : 12,
+                          overflow: "hidden",
+                        }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                           <b style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1303,33 +1257,32 @@ style={{
                         <div style={{ marginTop: 4, fontWeight: 900 }}>
                           {dayjs(b.start_at).format("HH:mm")}–{dayjs(b.end_at).format("HH:mm")}
                         </div>
-                        <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900,  }}>
+                        <div style={{ fontSize: isMobile ? 11 : 11, opacity: 1, fontWeight: 900 }}>
                           {b.booking_type} · {b.coach_name}
-                          
                         </div>
 
-{b?.created_at && (
-  <div className="mt-2 text-[11px] text-slate-400 font-medium">
-    {new Intl.DateTimeFormat("it-IT", {
-      day: "2-digit",
-      month: "2-digit",
-    }).format(new Date(b.created_at))}
+                        {b?.created_at && (
+                          <div className="mt-2 text-[11px] text-slate-400 font-medium">
+                            {new Intl.DateTimeFormat("it-IT", {
+                              day: "2-digit",
+                              month: "2-digit",
+                            }).format(new Date(b.created_at))}
 
-    {" · "}
+                            {" · "}
 
-    {new Intl.DateTimeFormat("it-IT", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(b.created_at))}
+                            {new Intl.DateTimeFormat("it-IT", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }).format(new Date(b.created_at))}
 
-{b.created_by_email ? (
-  <>
-    {" · "}
-    {String(b.created_by_email).split("@")[0]}
-  </>
-) : null}
-  </div>
-)}
+                            {b.created_by_email ? (
+                              <>
+                                {" · "}
+                                {String(b.created_by_email).split("@")[0]}
+                              </>
+                            ) : null}
+                          </div>
+                        )}
 
                         {b.notes && (
                           <div

@@ -3,7 +3,13 @@
 export const dynamic = "force-dynamic";
 
 import { C, btnStyleGhost, btnStylePrimary } from "@/features/planner/uiTokens";
-import { columnBg, columnGridLine, columnHeaderStyle } from "@/features/planner/plannerUi";
+import {
+  columnBg,
+  columnGridLine,
+  columnHeaderStyle,
+  bookingStyleFromCategory,
+  bookingInteractiveStyle,
+} from "@/features/planner/plannerUi";
 
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
@@ -69,7 +75,10 @@ type ExportRow = {
     squad_id: number | null;
     created_by: string | null;
   } | null;
-  resource?: { id: number; name: string; type: string } | { id: number; name: string; type: string }[] | null;
+  resource?:
+    | { id: number; name: string; type: string }
+    | { id: number; name: string; type: string }[]
+    | null;
 };
 
 /* =======================
@@ -77,15 +86,26 @@ type ExportRow = {
 ======================= */
 
 function colorForSquadLike(name: string) {
-  const palette = ["#DBEAFE", "#D1FAE5", "#FFEDD5", "#FCE7F3", "#CFFAFE", "#EDE9FE", "#FEF3C7"];
+  const palette = [
+    "#DBEAFE",
+    "#D1FAE5",
+    "#FFEDD5",
+    "#FCE7F3",
+    "#CFFAFE",
+    "#EDE9FE",
+    "#FEF3C7",
+  ];
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < name.length; i++)
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return palette[Math.abs(hash) % palette.length];
 }
 
 function getWeekMonday(anchor: dayjs.Dayjs) {
   const dow = anchor.day(); // 0 dom ... 6 sab
-  return dow === 0 ? anchor.subtract(6, "day").startOf("day") : anchor.subtract(dow - 1, "day").startOf("day");
+  return dow === 0
+    ? anchor.subtract(6, "day").startOf("day")
+    : anchor.subtract(dow - 1, "day").startOf("day");
 }
 
 function formatDayName(d: dayjs.Dayjs) {
@@ -163,6 +183,9 @@ export default function WeeklyPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const [exporting, setExporting] = useState<null | "week" | "all">(null);
+
+  // ✅ hover state (uniforme con daily)
+  const [hoveredBookingKey, setHoveredBookingKey] = useState<string | null>(null);
 
   // settimana da query (?week=YYYY-MM-DD) oppure fallback su oggi
   const weekFromQuery = useMemo(() => parseWeekFromQuery(searchParams.get("week")), [searchParams]);
@@ -666,7 +689,11 @@ export default function WeeklyPage() {
                       fontWeight: 900,
                       opacity: s.label ? 0.9 : 0.35,
                       color: C.text,
-                      borderBottom: s.isHour ? `1px solid ${hourLine}` : s.isHalf ? `1px solid ${halfLine}` : `1px solid ${slotLine}`,
+                      borderBottom: s.isHour
+                        ? `1px solid ${hourLine}`
+                        : s.isHalf
+                        ? `1px solid ${halfLine}`
+                        : `1px solid ${slotLine}`,
                     }}
                   >
                     {s.label}
@@ -720,20 +747,32 @@ export default function WeeklyPage() {
                         {/* blocchi occupati */}
                         {list.map((b) => {
                           const { top, height } = blockTopHeight(b);
+                          const blockStyle = bookingStyleFromCategory(b.colorKey);
+
+                          const hoverKey = `${b.id}-${b.start}-${field.id}`;
+                          const isHover = hoveredBookingKey === hoverKey;
+
                           return (
                             <div
-                              key={`${b.id}-${b.start}-${field.id}`}
+                              key={hoverKey}
+                              onMouseEnter={() => setHoveredBookingKey(hoverKey)}
+                              onMouseLeave={() => setHoveredBookingKey(null)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                goToDay(dayKey);
+                              }}
                               style={{
                                 position: "absolute",
                                 left: 3,
                                 right: 3,
                                 top,
                                 height,
-                                background: colorForSquadLike(b.colorKey),
-                                border: `1px solid rgba(17,24,39,0.85)`,
+
+                                ...blockStyle,
+                                ...bookingInteractiveStyle(isHover),
+
                                 borderRadius: 8,
-                                boxShadow: "0 6px 14px rgba(0,0,0,0.14)",
-                                pointerEvents: "none",
+                                pointerEvents: "auto",
                               }}
                             />
                           );

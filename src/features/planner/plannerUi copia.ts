@@ -30,13 +30,9 @@ function darkenHex(hex: string, amount: number) {
   const g = clamp(Math.round(rgb.g * (1 - amount)));
   const b = clamp(Math.round(rgb.b * (1 - amount)));
 
-  // ✅ niente template literal spezzato (più robusto in build)
-  return (
-    "#" +
-    r.toString(16).padStart(2, "0") +
-    g.toString(16).padStart(2, "0") +
-    b.toString(16).padStart(2, "0")
-  );
+  return `#${r.toString(16).padStart(2, "0")}${g
+    .toString(16)
+    .padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
 /* =======================
@@ -214,23 +210,6 @@ export const bookingCategoryColors = {
 
 export type BookingCategoryColorKey = keyof typeof bookingCategoryColors;
 
-/* =======================
-   Booking border + hover (centralizzati)
-======================= */
-
-export const BOOKING_BORDER_PX = 4;
-
-export function bookingInteractiveStyle(isHover: boolean): CSSProperties {
-  return {
-    transition: "transform 120ms ease, box-shadow 120ms ease, filter 120ms ease",
-    transform: isHover ? "translateY(-1px)" : "translateY(0px)",
-    filter: isHover ? "brightness(1.02)" : "none",
-    boxShadow: isHover
-      ? "0 10px 24px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.28)"
-      : "0 0 0 1px rgba(0,0,0,0.25), 0 6px 16px rgba(0,0,0,0.20)",
-  };
-}
-
 /** Normalizza stringhe tipo "Pulcini 2016", "pulcini", "Pulcini (A)" -> "PULCINI" quando possibile */
 function normalizeCategory(raw?: string | null): string {
   const s = (raw ?? "")
@@ -270,8 +249,7 @@ function categoryToKey(raw?: string | null): BookingCategoryColorKey | null {
   if (has("MATCH") || has("PARTITA") || has("GARA")) return "MATCH";
   if (has("TORNE") || has("EVENT")) return "TOURNAMENT";
   if (has("YOUTH") || has("GIOVANI") || has("SCUOLA")) return "YOUTH";
-  if (has("SERVIZ") || has("SALA") || has("MINIBUS") || has("SPOGL"))
-    return "SERVICES";
+  if (has("SERVIZ") || has("SALA") || has("MINIBUS") || has("SPOGL")) return "SERVICES";
 
   return null;
 }
@@ -290,13 +268,9 @@ function stableColorFromString(raw?: string | null): string {
  * Usa questa funzione passando la categoria "raw" che hai nel booking.
  * Se è Pulcini (anche con anno/varianti) -> sempre stesso colore.
  */
-export function bookingStyleFromAnyCategory(
-  rawCategory?: string | null
-): CSSProperties {
+export function bookingStyleFromAnyCategory(rawCategory?: string | null): CSSProperties {
   const key = categoryToKey(rawCategory);
-  const base = key
-    ? bookingCategoryColors[key]
-    : stableColorFromString(rawCategory);
+  const base = key ? bookingCategoryColors[key] : stableColorFromString(rawCategory);
   const border = darkenHex(base, 0.22);
 
   const rgb = hexToRgb(base);
@@ -305,18 +279,16 @@ export function bookingStyleFromAnyCategory(
   return {
     background: base,
     color: textColor,
-    border: `${BOOKING_BORDER_PX}px solid ${border}`,
-    boxShadow: bookingInteractiveStyle(false).boxShadow,
+    border: `3px solid ${border}`,
+    boxShadow: "0 0 0 1px rgba(0,0,0,0.25), 0 6px 16px rgba(0,0,0,0.20)",
   };
 }
-
 /** Mantengo la vecchia API: accetta sia key canonica che stringa "raw" */
 export function bookingStyleFromCategory(
   category: BookingCategoryColorKey
 ): CSSProperties;
-export function bookingStyleFromCategory(
-  category: string | null | undefined
-): CSSProperties;
+export function bookingStyleFromCategory(category: string | null | undefined): CSSProperties;
 export function bookingStyleFromCategory(category: any): CSSProperties {
   return bookingStyleFromAnyCategory(category);
 }
+
